@@ -5,6 +5,8 @@ export {
   amendBooking,
   getBookingDetails,
   saveBookingToDatabase,
+  getUserBookings,
+  updateBookingStatus,
 } from './booking';
 
 export type {
@@ -18,4 +20,18 @@ export type {
   BookingDetailsResult,
   SaveBookingParams,
   CancellationPolicy,
+  BookingRecord,
 } from './booking';
+
+export {
+  getCurrentUser,
+  updateProfile,
+  updatePassword,
+  signOut,
+  resetPasswordForEmail,
+} from './auth';
+
+export type {
+  AuthResult,
+  UserProfile,
+} from './auth';

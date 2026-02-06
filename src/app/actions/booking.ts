@@ -458,3 +458,114 @@ export async function saveBookingToDatabase(params: SaveBookingParams): Promise<
     };
   }
 }
+
+/**
+ * Fetch user's bookings from the database.
+ * Requires authentication. Returns only the authenticated user's bookings.
+ */
+export async function getUserBookings(): Promise<{
+  success: boolean;
+  data?: BookingRecord[];
+  error?: string;
+}> {
+  try {
+    const { user, supabase, error: authError } = await getAuthenticatedUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[getUserBookings] Error:', error);
+      return { success: false, error: 'Failed to fetch bookings' };
+    }
+
+    return { success: true, data: (data || []) as BookingRecord[] };
+  } catch (error) {
+    console.error('[getUserBookings] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch bookings',
+    };
+  }
+}
+
+/**
+ * Update a booking's status in the database.
+ * Requires authentication and ownership verification.
+ */
+export async function updateBookingStatus(
+  bookingId: string,
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user, supabase, error: authError } = await getAuthenticatedUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    // Verify ownership
+    const { data: booking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('user_id')
+      .eq('booking_id', bookingId)
+      .single();
+
+    if (fetchError || !booking) {
+      return { success: false, error: 'Booking not found' };
+    }
+
+    if (booking.user_id !== user.id) {
+      return { success: false, error: 'Not authorized to update this booking' };
+    }
+
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('booking_id', bookingId);
+
+    if (error) {
+      return { success: false, error: 'Failed to update booking status' };
+    }
+
+    revalidatePath('/trips');
+    return { success: true };
+  } catch (error) {
+    console.error('[updateBookingStatus] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update status',
+    };
+  }
+}
+
+// Re-export BookingRecord type for use by components
+export interface BookingRecord {
+  id: string;
+  booking_id: string;
+  user_id: string;
+  property_name: string;
+  property_image?: string;
+  room_name: string;
+  check_in: string;
+  check_out: string;
+  guests_adults: number;
+  guests_children: number;
+  total_price: number;
+  currency: string;
+  holder_first_name: string;
+  holder_last_name: string;
+  holder_email: string;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  special_requests?: string;
+  created_at: string;
+  updated_at: string;
+  cancellation_policy?: CancellationPolicy;
+}
