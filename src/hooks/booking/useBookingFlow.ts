@@ -7,8 +7,7 @@ import {
   useBookingActions,
 } from '@/stores/bookingStore';
 import { prebookRoom } from '@/app/actions';
-import type { BookingParams, CancellationPolicy } from '@/app/actions';
-import type { PrebookResponse } from '@/services/booking.service';
+import type { BookingParams, CancellationPolicy, PrebookResponse } from '@/app/actions';
 
 /**
  * Price data from prebook response
