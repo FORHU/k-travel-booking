@@ -20,6 +20,11 @@
   --color-alabaster-border: rgba(0, 0, 0, 0.1);
   --color-alabaster-accent: #2563eb;
 
+  --color-aurora-blue: #3b82f6;
+  --color-aurora-cyan: #06b6d4;
+  --color-aurora-indigo: #6366f1;
+  --color-aurora-violet: #8b5cf6;
+
   --animate-blur-transition: backdrop-filter 800ms ease;
   --transition-duration-800: 800ms;
 }

@@ -5,3 +5,8 @@ export { ExploreVacationPackages } from "./ExploreVacationPackages";
 export { ExploreUniqueStays } from "./ExploreUniqueStays";
 export { default as DealsSection } from "./DealsSection";
 export { default as RecentlyViewed } from "./RecentlyViewed";
+export { AIFeaturesSection } from "./AIFeaturesSection";
+export { PopularDestinations } from "./PopularDestinations";
+export { HowItWorksSection } from "./HowItWorksSection";
+export { TestimonialsSection } from "./TestimonialsSection";
+export { NewsletterSection } from "./NewsletterSection";
