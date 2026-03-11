@@ -39,6 +39,7 @@ const extractUserProfile = (supabaseUser: SupabaseUser): User => {
             meta.name?.split(" ").slice(1).join(" ") ||
             "",
         avatar: meta.avatar_url || meta.picture,
+        role: meta.role || 'user',
     };
 };
 
