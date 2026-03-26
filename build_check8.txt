@@ -1,0 +1,75 @@
+﻿Γû▓ Next.js 16.1.2 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 19.1s
+  Running TypeScript ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/21) ...
+  Generating static pages using 7 workers (5/21) 
+  Generating static pages using 7 workers (10/21) 
+  Generating static pages using 7 workers (15/21) 
+Γ£ô Generating static pages using 7 workers (21/21) in 887.7ms
+  Finalizing page optimization ...
+
+Route (app)
+Γöî ╞Æ /
+Γö£ Γùï /_not-found
+Γö£ ╞Æ /account
+Γö£ Γùï /admin
+Γö£ ╞Æ /admin/analytics
+Γö£ ╞Æ /admin/bookings
+Γö£ ╞Æ /admin/communication
+Γö£ ╞Æ /admin/customers
+Γö£ ╞Æ /admin/overview
+Γö£ ╞Æ /admin/settings
+Γö£ ╞Æ /admin/suppliers
+Γö£ ╞Æ /admin/users
+Γö£ ╞Æ /api/admin/bookings
+Γö£ ╞Æ /api/admin/communication
+Γö£ ╞Æ /api/admin/customers
+Γö£ ╞Æ /api/admin/notifications
+Γö£ ╞Æ /api/admin/promote
+Γö£ ╞Æ /api/admin/settings
+Γö£ ╞Æ /api/airports/search
+Γö£ ╞Æ /api/autocomplete
+Γö£ ╞Æ /api/booking/amend
+Γö£ ╞Æ /api/booking/cancel
+Γö£ ╞Æ /api/booking/confirm
+Γö£ ╞Æ /api/booking/create-payment
+Γö£ ╞Æ /api/booking/details
+Γö£ ╞Æ /api/booking/list
+Γö£ ╞Æ /api/booking/prebook
+Γö£ ╞Æ /api/booking/save
+Γö£ ╞Æ /api/email
+Γö£ ╞Æ /api/flights/book
+Γö£ ╞Æ /api/flights/cancel-booking
+Γö£ ╞Æ /api/flights/confirm
+Γö£ ╞Æ /api/flights/search
+Γö£ ╞Æ /api/internal/cheapest-flight
+Γö£ ╞Æ /api/internal/refresh-flights
+Γö£ ╞Æ /api/voucher/list
+Γö£ ╞Æ /api/voucher/record
+Γö£ ╞Æ /api/voucher/validate
+Γö£ ╞Æ /api/webhooks/flight-supplier
+Γö£ ╞Æ /api/webhooks/stripe
+Γö£ Γùï /auth/auth-code-error
+Γö£ ╞Æ /auth/callback
+Γö£ Γùï /auth/reset-password
+Γö£ ╞Æ /checkout
+Γö£ ╞Æ /dev-policy-test
+Γö£ ╞Æ /flights/book
+Γö£ ╞Æ /flights/search
+Γö£ Γùï /icon.png
+Γö£ Γùï /login
+Γö£ ╞Æ /property/[id]
+Γö£ ╞Æ /search
+Γö£ Γùï /test-map
+Γöö ╞Æ /trips
+
+
+╞Æ Proxy (Middleware)
+
+Γùï  (Static)   prerendered as static content
+╞Æ  (Dynamic)  server-rendered on demand
+

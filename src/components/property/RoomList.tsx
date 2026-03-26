@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { type Property } from '@/types';
+import { type HotelProperty } from '@/types/properties';
 import { useViewingRoom, useBookingActions } from '@/stores/bookingStore';
 import { useRoomGrouping } from '@/hooks';
 import { RoomType } from '@/lib/room';
@@ -12,7 +12,7 @@ import { useUserCurrency } from '@/stores/searchStore';
 import { convertCurrency } from '@/lib/currency';
 
 interface RoomListProps {
-    property: Property;
+    property: HotelProperty;
     roomTypes?: RoomType[];
     searchParams?: { checkIn?: string; checkOut?: string; adults?: number; children?: number; rooms?: number; currency?: string };
     hotelImages?: string[];
@@ -126,13 +126,21 @@ const RoomList: React.FC<RoomListProps> = ({ property, roomTypes, searchParams, 
                             title="Deluxe King Room"
                             price={5200}
                             onReserve={() => handleReserve("Deluxe King Room", 5200)}
-                            onViewDetails={() => setViewingRoom({ name: "Deluxe King Room" })}
+                            onViewDetails={() => setViewingRoom({ 
+                                id: 'mock-deluxe', 
+                                roomName: 'Deluxe King Room', 
+                                price: { amount: 5200, currency: 'PHP' } 
+                            } as any)}
                         />
                         <RoomCard
                             title="Executive Suite"
                             price={8500}
                             onReserve={() => handleReserve("Executive Suite", 8500)}
-                            onViewDetails={() => setViewingRoom({ name: "Executive Suite" })}
+                            onViewDetails={() => setViewingRoom({ 
+                                id: 'mock-executive', 
+                                roomName: 'Executive Suite', 
+                                price: { amount: 8500, currency: 'PHP' } 
+                            } as any)}
                         />
                     </>
                 )}

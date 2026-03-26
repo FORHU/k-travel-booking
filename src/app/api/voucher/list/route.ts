@@ -17,8 +17,6 @@ export async function POST(req: Request) {
         const promos = await getAvailableVouchersServer({
             bookingPrice: body.bookingPrice,
             currency: body.currency,
-            hotelId: body.hotelId,
-            locationCode: body.locationCode,
         });
 
         return Response.json({ success: true, data: promos });

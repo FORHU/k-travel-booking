@@ -1,6 +1,5 @@
 /**
  * Voucher/Promo system types.
- * Aligned with LiteAPI Vouchers API.
  * All discount calculations happen server-side only.
  */
 
@@ -8,7 +7,6 @@
 // Voucher Types
 // ============================================================================
 
-/** LiteAPI only supports 'percentage' — kept 'fixed' for local fallback/display */
 export type VoucherDiscountType = 'percentage' | 'fixed';
 
 export type VoucherCategory =
@@ -18,11 +16,11 @@ export type VoucherCategory =
   | 'hotel_specific'
   | 'seasonal';
 
-/** LiteAPI voucher as returned by GET /vouchers */
-export interface LiteAPIVoucher {
+/** Provider-level voucher information */
+export interface ProviderVoucher {
   id: string;
   voucher_code: string;
-  discount_type: 'percentage';
+  discount_type: 'percentage' | 'fixed';
   discount_value: number;
   minimum_spend: number;
   maximum_discount_amount: number;
@@ -97,7 +95,7 @@ export interface AvailablePromo {
 }
 
 // ============================================================================
-// Applied Voucher State (client display only — values from server)
+// Applied Voucher (used in checkout)
 // ============================================================================
 
 export interface AppliedVoucher {
@@ -107,23 +105,4 @@ export interface AppliedVoucher {
   discountAmount: number;
   finalPrice: number;
   description: string;
-}
-
-// ============================================================================
-// Server Action Params
-// ============================================================================
-
-export interface ValidateVoucherParams {
-  code: string;
-  bookingPrice: number;
-  currency: string;
-  hotelId?: string;
-  locationCode?: string;
-}
-
-export interface GetAvailableVouchersParams {
-  bookingPrice: number;
-  currency: string;
-  hotelId?: string;
-  locationCode?: string;
 }

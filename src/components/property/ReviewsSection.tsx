@@ -72,24 +72,19 @@ function WhoStaysHere({ breakdown }: { breakdown: TravelerBreakdown }) {
 }
 
 /**
- * Single Review Item - Matches LiteAPI style
+ * Single Review Item
  */
 function ReviewItem({ review, index }: { review: HotelReview; index: number }) {
     const { toggleExpanded, expandedReviewIds } = useReviewsStore();
     const reviewId = `${review.name}-${index}`;
     const isExpanded = expandedReviewIds.has(reviewId);
 
-    // Combine pros and cons into review text
     const reviewText = [review.pros, review.cons].filter(Boolean).join(' ');
     const isLongText = reviewText.length > 200;
-    const displayText = isLongText && !isExpanded
-        ? reviewText.substring(0, 200) + '...'
-        : reviewText;
 
     return (
         <div className="py-2.5 lg:py-4 border-b border-slate-100 dark:border-slate-700 last:border-b-0">
             <div className="flex items-start justify-between gap-3 lg:gap-4">
-                {/* Left: Reviewer info */}
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 lg:gap-2 mb-0.5">
                         <span className="font-semibold text-[11px] lg:text-sm text-slate-900 dark:text-white truncate">
@@ -105,14 +100,12 @@ function ReviewItem({ review, index }: { review: HotelReview; index: number }) {
                         {formatReviewDate(review.date)}
                     </p>
 
-                    {/* Headline */}
                     {review.headline && (
                         <p className="font-medium text-[11px] lg:text-sm text-slate-800 dark:text-slate-200 mb-0.5 lg:mb-1">
                             {review.headline}
                         </p>
                     )}
 
-                    {/* Review text with pros/cons */}
                     {reviewText && (
                         <div className="text-[11px] lg:text-sm text-slate-600 dark:text-slate-300">
                             {review.pros && (
@@ -137,7 +130,6 @@ function ReviewItem({ review, index }: { review: HotelReview; index: number }) {
                     )}
                 </div>
 
-                {/* Right: Score badge */}
                 {review.averageScore > 0 && (
                     <div className={`${getRatingColor(review.averageScore)} text-white w-6 h-6 lg:w-9 lg:h-9 rounded-full flex items-center justify-center font-bold text-[10px] lg:text-sm flex-shrink-0`}>
                         {review.averageScore.toFixed(0)}
@@ -162,33 +154,25 @@ export default function ReviewsSection({ reviews, averageRating, totalCount }: R
     const prevDisplayCountRef = React.useRef(displayCount);
     const prevScrollHeightRef = React.useRef<number>(0);
 
-    // Use server-fetched reviews directly from props (no store copy needed)
     const reviewsToDisplay = reviews;
-
-    // Calculate traveler breakdown
     const travelerBreakdown = calculateTravelerBreakdown(reviewsToDisplay);
 
-    // Sort reviews
     const sortedReviews = [...reviewsToDisplay].sort((a, b) => {
         if (sortBy === 'highest') return (b.averageScore || 0) - (a.averageScore || 0);
         if (sortBy === 'lowest') return (a.averageScore || 0) - (b.averageScore || 0);
-        // Default: newest first (by date)
         return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
 
     const displayedReviews = sortedReviews.slice(0, displayCount);
     const hasMore = displayCount < reviewsToDisplay.length;
 
-    // State for custom sort dropdown
     const [isSortOpen, setIsSortOpen] = React.useState(false);
 
-    // Auto-scroll logic when loading more reviews
     React.useEffect(() => {
         if (displayCount > prevDisplayCountRef.current) {
             setTimeout(() => {
                 if (scrollContainerRef.current && prevScrollHeightRef.current > 0) {
                     const container = scrollContainerRef.current;
-                    // Scroll exactly to where the old content ended, minus a small buffer
                     container.scrollTo({
                         top: prevScrollHeightRef.current - 60,
                         behavior: 'smooth'
@@ -206,7 +190,6 @@ export default function ReviewsSection({ reviews, averageRating, totalCount }: R
         loadMore();
     };
 
-    // Click outside handler for custom dropdown
     React.useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (isSortOpen && !(event.target as Element).closest('#sort-dropdown')) {
@@ -242,17 +225,13 @@ export default function ReviewsSection({ reviews, averageRating, totalCount }: R
     return (
         <section id="reviews-section" className="py-4 lg:py-8">
             <div className="flex flex-col lg:flex-row gap-4 lg:gap-8">
-                {/* Left Column - Summary */}
                 <div className="lg:w-64 flex-shrink-0">
                     <h2 className="text-[14px] lg:text-xl font-bold text-slate-900 dark:text-white mb-2 lg:mb-4">Guest reviews</h2>
-
                     <RatingSummary rating={averageRating} totalCount={totalCount} />
                     <WhoStaysHere breakdown={travelerBreakdown} />
                 </div>
 
-                {/* Right Column - Reviews List */}
                 <div className="flex-1 w-full min-w-0">
-                    {/* Sort dropdown */}
                     <div className="flex sm:justify-end mb-4 relative z-20" id="sort-dropdown">
                         <div className="relative w-full sm:w-auto">
                             <button
@@ -285,7 +264,6 @@ export default function ReviewsSection({ reviews, averageRating, totalCount }: R
                         </div>
                     </div>
 
-                    {/* Reviews list in scrollable container */}
                     <div
                         ref={scrollContainerRef}
                         className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 max-h-[400px] md:max-h-[500px] overflow-y-auto shadow-sm relative z-10"
@@ -297,7 +275,6 @@ export default function ReviewsSection({ reviews, averageRating, totalCount }: R
                         </div>
                     </div>
 
-                    {/* Load more button & count */}
                     <div className="mt-4 md:mt-5 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
                         {hasMore && (
                             <button

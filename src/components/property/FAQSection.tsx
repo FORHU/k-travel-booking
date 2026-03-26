@@ -62,7 +62,7 @@ const FAQSection: React.FC<FAQSectionProps> = ({
     hotelFacilities,
     hotelImportantInformation
 }) => {
-    // Build FAQs dynamically from real LiteAPI data
+    // Build FAQs dynamically from property data
     const faqs: { question: string; answer: string }[] = [];
 
     if (checkInTime) {
@@ -131,7 +131,6 @@ const FAQSection: React.FC<FAQSectionProps> = ({
         }
     }
 
-    // Important information as FAQ if available
     if (hotelImportantInformation) {
         faqs.push({
             question: "Is there anything important I should know before booking?",
@@ -139,7 +138,6 @@ const FAQSection: React.FC<FAQSectionProps> = ({
         });
     }
 
-    // If no FAQs can be generated, hide the section
     if (faqs.length === 0) {
         return null;
     }

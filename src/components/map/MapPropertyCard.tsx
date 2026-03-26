@@ -60,8 +60,8 @@ const MapPropertyCard = React.memo(function MapPropertyCard({
                 {/* Image */}
                 <div className="relative w-[100px] h-[80px] flex-shrink-0 rounded-lg overflow-hidden landscape:w-[80px] landscape:h-[60px]">
                     <Image
-                        src={property.image}
-                        alt={property.name}
+                        src={property.image || ''}
+                        alt={property.name || ''}
                         fill
                         className="object-cover"
                         sizes="100px"
@@ -90,15 +90,15 @@ const MapPropertyCard = React.memo(function MapPropertyCard({
                     {/* Rating + Price row (Stacked on mobile to prevent overlap) */}
                     <div className="flex flex-col items-start mt-1 landscape:mt-0 w-full min-w-0 pr-1 gap-0.5">
                         <div className="flex items-center flex-shrink-0">
-                            <span className={cn('text-[10px] font-bold text-white px-1 py-px rounded landscape:text-[9px] landscape:px-1 landscape:py-0', getRatingColor(property.rating))}>
-                                {property.rating.toFixed(1)}
+                            <span className={cn('text-[10px] font-bold text-white px-1 py-px rounded landscape:text-[9px] landscape:px-1 landscape:py-0', getRatingColor(property.rating ?? 0))}>
+                                {(property.rating ?? 0).toFixed(1)}
                             </span>
                         </div>
 
                         <div className="flex-shrink-0 w-full min-w-0 overflow-hidden">
                             <div className="flex items-baseline gap-0.5 w-full overflow-hidden">
                                 <span className="text-[13px] font-bold text-blue-600 dark:text-blue-400 landscape:text-[11px] truncate block">
-                                    {formatCurrency(property.price)}
+                                    {formatCurrency(property.price ?? 0)}
                                 </span>
                                 <span className="text-[9px] text-slate-400 landscape:text-[7px] flex-shrink-0">/night</span>
                             </div>
@@ -112,8 +112,8 @@ const MapPropertyCard = React.memo(function MapPropertyCard({
                 {/* Thumbnail */}
                 <div className="relative w-20 h-16 lg:w-24 lg:h-20 flex-shrink-0 rounded-xl overflow-hidden">
                     <Image
-                        src={property.image}
-                        alt={property.name}
+                        src={property.image || ''}
+                        alt={property.name || ''}
                         fill
                         className="object-cover"
                         sizes="(max-width: 1024px) 80px, 96px"
@@ -142,14 +142,14 @@ const MapPropertyCard = React.memo(function MapPropertyCard({
                     <div className="flex items-end justify-between mt-1.5">
                         {/* Rating */}
                         <div className="flex items-center gap-1.5">
-                            <span className={cn('text-[11px] font-bold text-white px-1.5 py-0.5 rounded', getRatingColor(property.rating))}>
-                                {property.rating.toFixed(1)}
+                            <span className={cn('text-[11px] font-bold text-white px-1.5 py-0.5 rounded', getRatingColor(property.rating ?? 0))}>
+                                {(property.rating ?? 0).toFixed(1)}
                             </span>
                             <div className="flex flex-col min-w-0 landscape-compact:hidden">
                                 <span className="text-[10px] font-medium text-slate-700 dark:text-slate-300 leading-none truncate">
-                                    {getRatingLabel(property.rating)}
+                                    {getRatingLabel(property.rating ?? 0)}
                                 </span>
-                                {property.reviews > 0 && (
+                                {property.reviews != null && property.reviews > 0 && (
                                     <span className="text-[10px] text-slate-400 leading-tight">
                                         {property.reviews.toLocaleString()} reviews
                                     </span>
@@ -159,13 +159,13 @@ const MapPropertyCard = React.memo(function MapPropertyCard({
 
                         {/* Price */}
                         <div className="text-right flex-shrink-0">
-                            {property.originalPrice && property.originalPrice > property.price && (
+                            {property.originalPrice != null && property.price != null && property.originalPrice > property.price && (
                                 <span className="text-[10px] text-slate-400 line-through block leading-none">
-                                    {formatCurrency(property.originalPrice)}
+                                    {formatCurrency(property.originalPrice ?? 0)}
                                 </span>
                             )}
                             <span className="text-[clamp(0.6875rem,1.5vw,0.875rem)] font-bold text-blue-600 dark:text-blue-400">
-                                {formatCurrency(property.price)}
+                                {formatCurrency(property.price ?? 0)}
                             </span>
                             <span className="text-[10px] text-slate-400 ml-0.5">/night</span>
                         </div>

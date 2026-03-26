@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { type Property } from '@/types';
+import { type HotelProperty } from '@/types/properties';
 import { PropertyCard } from '@/components/shared';
 import { ChevronDown, MapPin } from 'lucide-react';
 
@@ -10,7 +10,7 @@ const SORT_OPTIONS = ['recommended', 'price-low', 'price-high', 'rating'] as con
 type SortValue = typeof SORT_OPTIONS[number];
 
 interface SearchResultsProps {
-    initialProperties?: Property[];
+    initialProperties?: HotelProperty[];
 }
 
 const SearchResultsContent = ({ initialProperties = [] }: SearchResultsProps) => {
@@ -50,11 +50,11 @@ const SearchResultsContent = ({ initialProperties = [] }: SearchResultsProps) =>
         const props = initialProperties && initialProperties.length > 0 ? [...initialProperties] : [];
 
         if (sortBy === 'price-low') {
-            props.sort((a, b) => a.price - b.price);
+            props.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
         } else if (sortBy === 'price-high') {
-            props.sort((a, b) => b.price - a.price);
+            props.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
         } else if (sortBy === 'rating') {
-            props.sort((a, b) => b.rating - a.rating);
+            props.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
         }
 
         return props;

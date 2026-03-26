@@ -40,8 +40,8 @@ const MapPopup = React.memo(function MapPopup({
                 {/* Image */}
                 <div className="relative">
                     <img
-                        src={property.image}
-                        alt={property.name}
+                        src={property.image || ''}
+                        alt={property.name || ''}
                         className="w-full h-36 object-cover landscape-compact-popup-img"
                         loading="lazy"
                     />
@@ -65,7 +65,7 @@ const MapPopup = React.memo(function MapPopup({
                 {/* Content */}
                 <div className="p-3 max-h-[500px]:landscape:p-1.5">
                     <h3 className="font-bold text-sm text-slate-900 dark:text-white leading-tight max-h-[500px]:landscape:text-[11px]">
-                        {property.name}
+                        {property.name ?? ''}
                     </h3>
 
                     <div className="flex items-center gap-1 mt-1 max-h-[500px]:landscape:mt-0.5">
@@ -78,24 +78,25 @@ const MapPopup = React.memo(function MapPopup({
                     {/* Rating row */}
                     <div className="flex items-center gap-2 mt-2 max-h-[500px]:landscape:mt-1">
                         <span className="text-xs font-bold text-white bg-blue-600 px-1.5 py-0.5 rounded max-h-[500px]:landscape:text-[9px] max-h-[500px]:landscape:px-1 max-h-[500px]:landscape:py-px">
-                            {property.rating.toFixed(1)}
+                            {(property.rating ?? 0).toFixed(1)}
                         </span>
                         <span className="text-xs font-medium text-slate-700 dark:text-slate-300 max-h-[500px]:landscape:text-[9px]">
-                            {getRatingLabel(property.rating)}
+                            {getRatingLabel(property.rating ?? 0)}
                         </span>
                     </div>
 
                     {/* Price + CTA */}
                     <div className="flex items-end justify-between mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 max-h-[500px]:landscape:mt-1.5 max-h-[500px]:landscape:pt-1.5 ">
                         <div>
-                            {property.originalPrice &&
+                            {property.originalPrice != null &&
+                                property.price != null &&
                                 property.originalPrice > property.price && (
                                     <span className="text-[10px] text-slate-400 line-through block leading-none mb-0.5 max-h-[500px]:landscape:text-[8px] max-h-[500px]:landscape:mb-0">
-                                        {formatCurrency(property.originalPrice)}
+                                        {formatCurrency(property.originalPrice ?? 0)}
                                     </span>
                                 )}
                             <span className="text-base font-bold text-blue-600 dark:text-blue-400 max-h-[500px]:landscape:text-sm">
-                                {formatCurrency(property.price)}
+                                {formatCurrency(property.price ?? 0)}
                             </span>
                             <span className="text-[10px] text-slate-400 ml-0.5 max-h-[500px]:landscape:text-[8px]">
                                 /night

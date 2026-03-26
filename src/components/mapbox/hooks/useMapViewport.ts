@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { MapRef } from 'react-map-gl/mapbox';
 import { getBoundsFromProperties } from '../utils/getBoundsFromProperties';
-import { MappableProperty } from '../utils/buildGeoJson';
+import { type MappableProperty } from '@/components/map/types';
 
 interface UseMapViewportProps {
     mapRef: React.RefObject<MapRef | null>; // Fix: Allow null in RefObject type

@@ -1,4 +1,4 @@
-import { type Property } from '@/types';
+import { type HotelProperty } from '@/types/properties';
 
 /** Props shared across map components for selection sync */
 export interface MapSelectionProps {
@@ -9,7 +9,7 @@ export interface MapSelectionProps {
 }
 
 /** A property with guaranteed coordinates (filtered before passing to map) */
-export type MappableProperty = Property & {
+export type MappableProperty = HotelProperty & {
     coordinates: { lat: number; lng: number };
 };
 

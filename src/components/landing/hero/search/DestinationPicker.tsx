@@ -13,8 +13,6 @@ import {
     useSuggestionsLoading
 } from '@/stores/searchStore';
 
-
-
 interface DestinationPickerProps {
     hideIcon?: boolean;
     forceOpen?: boolean;
@@ -27,7 +25,7 @@ export const DestinationPicker: React.FC<DestinationPickerProps> = ({ hideIcon, 
     const query = useDestinationQuery();
     const recentSearches = useRecentSearches();
     const activeDropdown = useActiveDropdown();
-    // Use store selectors for suggestions/loading (no useState)
+    // Use store selectors for suggestions/loading
     const suggestions = useSuggestions();
     const loading = useSuggestionsLoading();
 
@@ -192,7 +190,7 @@ export const DestinationPicker: React.FC<DestinationPickerProps> = ({ hideIcon, 
                         {query && (
                             <>
                                 <div className={`${forceOpen ? 'px-2' : 'px-6'} py-1.5 text-[9px] font-normal uppercase text-slate-400 tracking-widest`}>
-                                    LiteAPI Results
+                                    Search Results
                                 </div>
                                 {suggestions.length > 0 ? (
                                     suggestions.map((item, i) => (

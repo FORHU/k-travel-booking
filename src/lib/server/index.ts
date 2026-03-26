@@ -14,8 +14,6 @@ export {
     getBookingDetails,
     saveBookingToDatabase,
     getUserBookings,
-    type ConfirmAndSaveInput,
-    type ConfirmAndSaveResult,
 } from './bookings';
 
 // Vouchers
@@ -31,24 +29,13 @@ export { autocompleteDestinations } from './search';
 // Email
 export { sendBookingConfirmationEmail, sendFlightBookingConfirmationEmail, sendFlightAwaitingTicketEmail, sendFlightRefundEmail } from './email';
 
-// Policy normalizer
-export { normalizeLiteApiPolicy, type NormalizedPolicy } from './policy-normalizer';
-
-// Cancellation Engine
-export { calculateCancellation, type CancellationResult } from './cancellation-engine';
-
-// LiteAPI gateway
+// Onda gateway
 export {
-    autocompleteLiteApi,
-    searchLiteApi,
-    prebookLiteApi,
-    bookLiteApi,
-    cancelBookingLiteApi,
-    amendBookingLiteApi,
-    getBookingDetailsLiteApi,
-    listVouchersLiteApi,
-    getHotelReviewsLiteApi,
-} from './liteapi';
+    searchOndaApi,
+    getOndaPropertyDetails,
+    bookOndaApi,
+    cancelBookingOndaApi,
+} from './onda';
 
 // Types
 export type {
@@ -64,4 +51,6 @@ export type {
     CancellationPolicy,
     GetUserBookingsResult,
     BookingDetailsResult,
+    ConfirmAndSaveInput,
+    ConfirmAndSaveResult,
 } from './types';

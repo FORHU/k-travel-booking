@@ -1,278 +1,154 @@
+import { type CancellationPolicy } from '@/services/booking.service';
+
 /**
- * Room utilities for data transformation and business logic.
- * Pure functions that can be used in both server and client components.
+ * Room rate option within a grouped room
  */
-
-import { RateOption } from '@/components/property/RoomCard';
+export interface RoomRate {
+    offerId: string;
+    price: number;
+    currency: string;
+    refundable: boolean;
+    boardType?: string;
+    description?: string;
+    cancellationPolicy?: CancellationPolicy;
+}
 
 /**
- * Room type from LiteAPI (each roomType is actually an "offer")
- * An offer = physical room + meal plan + cancellation policy
+ * Room type definition (input from API)
  */
 export interface RoomType {
-    offerId?: string;
-    name?: string;
-    roomName?: string;
+    id: string;
+    roomName: string;
+    description?: string;
+    images?: string[];
+    amenities?: string[];
+    price: {
+        amount: number;
+        currency: string;
+    };
+    cancellationPolicies?: CancellationPolicy;
     maxOccupancy?: number;
     bedType?: string;
     roomSize?: string;
-    roomPhotos?: string[];
-    roomDescription?: string;
-    rates?: RoomRate[];
-    amenities?: (string | { name: string })[];
-    /**
-     * Cancellation policies at offer/roomType level (LiteAPI docs structure)
-     * Each "offer" has ONE cancellation policy that applies to all rates within it
-     */
-    cancellationPolicies?: {
-        refundableTag?: 'RFN' | 'NRFN' | string;
-        cancelPolicyInfos?: Array<{
-            cancelTime?: string;
-            cancelDeadline?: string;
-            amount?: number;
-            currency?: string;
-            type?: string;
-        }>;
-        hotelRemarks?: string[];
-    };
-}
-
-export interface RoomRate {
-    rateId?: string;
-    name?: string;
-    boardType?: string;
-    boardName?: string;
-    maxOccupancy?: number;
-    retailRate?: {
-        total?: Array<{ amount: number; currency: string }> | { amount: number };
-    };
-    /** LiteAPI structure: refundableTag is INSIDE cancellationPolicies */
-    cancellationPolicies?: {
-        refundableTag?: 'RFN' | 'NRFN' | string;
-        cancelPolicyInfos?: Array<{
-            cancelTime?: string;
-            cancelDeadline?: string;
-            amount?: number;
-            currency?: string;
-            type?: string;
-        }>;
-        hotelRemarks?: string[];
-    };
-    /** @deprecated Use cancellationPolicies.refundableTag instead */
-    refundableTag?: string;
-    /** @deprecated Use cancellationPolicies instead */
-    cancellationPolicy?: {
-        cancelPolicyInfos?: Array<{ cancelDeadline?: string; amount?: number }>;
-    };
 }
 
 /**
- * Grouped room with multiple rate options
+ * Grouped room for display
  */
 export interface GroupedRoom {
     roomName: string;
-    roomTypes: RoomType[];
-    rateOptions: RateOption[];
     lowestPrice: number;
     currency: string;
-    maxOccupancy?: number;
-    bedType?: string;
-    roomSize?: string;
-    roomPhotos?: string[];
-    roomDescription?: string;
-    amenities?: (string | { name: string })[];
+    maxOccupancy: number;
+    bedType: string;
+    roomSize: string;
+    amenities: string[];
+    roomPhotos: string[];
+    rateOptions: RoomRate[];
+    roomTypes: RoomType[];
 }
 
-/**
- * Price extraction result
- */
 export interface PriceInfo {
     amount: number;
     currency: string;
 }
 
-/**
- * Extract price from API rate structure
- */
-export function extractRoomPrice(rates?: RoomRate[]): PriceInfo {
-    if (!rates || rates.length === 0) {
-        return { amount: 0, currency: 'PHP' };
-    }
+// ============================================================================
+// Display Utilities
+// ============================================================================
 
-    const total = rates[0]?.retailRate?.total;
-
-    if (Array.isArray(total) && total.length > 0) {
-        return {
-            amount: total[0].amount || 0,
-            currency: total[0].currency || 'PHP'
-        };
-    }
-
-    if (typeof total === 'object' && total !== null && 'amount' in total) {
-        return {
-            amount: (total as { amount: number }).amount || 0,
-            currency: 'PHP'
-        };
-    }
-
-    return { amount: 0, currency: 'PHP' };
+export function normalizeRoomName(name: string): string {
+    if (!name) return 'Standard Room';
+    // Remove "Onda -" prefix if present
+    return name.replace(/^Onda\s*-\s*/, '').trim();
 }
 
-/**
- * Check if free cancellation is available based on refundableTag or cancellation policy
- *
- * LiteAPI structure (per docs):
- * - cancellationPolicies is at roomType/offer level, NOT individual rate level
- * - Each roomType has ONE cancellation policy that applies to all its rates
- *
- * @param roomType - The roomType/offer object (preferred)
- * @param rates - Fallback: array of rates (for backwards compatibility)
- */
-export function hasFreeCancellation(roomType?: RoomType | null, rates?: RoomRate[]): boolean {
-    // 1. Check roomType-level cancellationPolicies (correct per LiteAPI docs)
-    if (roomType?.cancellationPolicies?.refundableTag) {
-        return roomType.cancellationPolicies.refundableTag === 'RFN';
-    }
-
-    // 2. Fallback: Check rate-level cancellationPolicies (some API responses include this)
-    const rate = rates?.[0] || roomType?.rates?.[0];
-    if (rate?.cancellationPolicies?.refundableTag) {
-        return rate.cancellationPolicies.refundableTag === 'RFN';
-    }
-
-    // 3. Fallback: Check legacy refundableTag directly on rate
-    if (rate?.refundableTag === 'RFN') return true;
-    if (rate?.refundableTag === 'NRFN') return false;
-
-    // 4. Last fallback: Check cancelPolicyInfos for 0% fee
-    const cancelPolicies = roomType?.cancellationPolicies?.cancelPolicyInfos ||
-                          rate?.cancellationPolicies?.cancelPolicyInfos ||
-                          rate?.cancellationPolicy?.cancelPolicyInfos;
-    if (cancelPolicies && cancelPolicies.length > 0) {
-        const firstPolicy = cancelPolicies[0];
-        if (firstPolicy.amount === 0) return true;
-    }
-
-    return false;
+export function getRoomDisplayName(room: RoomType): string {
+    return normalizeRoomName(room.roomName);
 }
 
-/**
- * Normalize room name by removing rate-specific suffixes
- */
-export function normalizeRoomName(roomName: string): string {
-    return roomName
-        .replace(/\s*-\s*(non[- ]?refundable|refundable|room only|breakfast included).*$/i, '')
-        .trim();
+export function getRoomImage(groupedRoom: GroupedRoom, index: number, hotelImages: string[] = []): string {
+    if (groupedRoom.roomPhotos?.[0]) return groupedRoom.roomPhotos[0];
+    if (hotelImages[index % hotelImages.length]) return hotelImages[index % hotelImages.length];
+    return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80&w=800';
 }
 
-/**
- * Get the display name for a room type
- */
-export function getRoomDisplayName(roomType: RoomType): string {
-    return roomType.rates?.[0]?.name || roomType.name || roomType.roomName || 'Standard Room';
-}
+// ============================================================================
+// Grouping & Search
+// ============================================================================
 
-/**
- * Create a rate option from a room type (offer)
- * Each roomType in LiteAPI is an "offer" = room + meal plan + cancellation policy
- */
-export function createRateOption(roomType: RoomType): RateOption {
-    const priceInfo = extractRoomPrice(roomType.rates);
-    // Pass roomType to check cancellationPolicies at the correct level (per LiteAPI docs)
-    const refundable = hasFreeCancellation(roomType, roomType.rates);
-    const rate = roomType.rates?.[0];
-
-    // Get cancellation deadline - check roomType level first, then rate level
-    const cancelDeadline = roomType.cancellationPolicies?.cancelPolicyInfos?.[0]?.cancelTime ||
-                          roomType.cancellationPolicies?.cancelPolicyInfos?.[0]?.cancelDeadline ||
-                          rate?.cancellationPolicies?.cancelPolicyInfos?.[0]?.cancelTime ||
-                          rate?.cancellationPolicies?.cancelPolicyInfos?.[0]?.cancelDeadline ||
-                          rate?.cancellationPolicy?.cancelPolicyInfos?.[0]?.cancelDeadline;
-
+export function createRateOption(room: RoomType): RoomRate {
     return {
-        offerId: roomType.offerId || '',
-        price: priceInfo.amount,
-        currency: priceInfo.currency,
-        boardType: rate?.boardType,
-        boardName: rate?.boardName || 'Room only',
-        refundable,
-        cancellationDeadline: cancelDeadline
+        offerId: room.id,
+        price: room.price.amount,
+        currency: room.price.currency,
+        refundable: room.cancellationPolicies?.refundableTag === 'RFN',
+        boardType: room.description,
+        description: room.description,
+        cancellationPolicy: room.cancellationPolicies,
     };
 }
 
-/**
- * Group room types by their physical room name
- * Rates become different pricing options within each group
- */
-export function groupRoomsByName(roomTypes: RoomType[]): GroupedRoom[] {
-    if (!roomTypes || roomTypes.length === 0) return [];
+export function groupRoomsByName(rooms: RoomType[]): GroupedRoom[] {
+    const groups: Record<string, GroupedRoom> = {};
 
-    const groups = new Map<string, GroupedRoom>();
+    rooms.forEach((room) => {
+        const name = normalizeRoomName(room.roomName);
+        if (!groups[name]) {
+            groups[name] = {
+                roomName: name,
+                lowestPrice: room.price.amount,
+                currency: room.price.currency,
+                maxOccupancy: room.maxOccupancy || 2,
+                bedType: room.bedType || 'King Bed',
+                roomSize: room.roomSize || '30 sqm',
+                amenities: room.amenities || [],
+                roomPhotos: room.images || [],
+                rateOptions: [],
+                roomTypes: [],
+            };
+        }
 
-    roomTypes.forEach((roomType) => {
-        const roomName = getRoomDisplayName(roomType);
-        const normalizedName = normalizeRoomName(roomName);
+        groups[name].roomTypes.push(room);
+        groups[name].rateOptions.push(createRateOption(room));
 
-        const priceInfo = extractRoomPrice(roomType.rates);
-        const rateOption = createRateOption(roomType);
-
-        if (groups.has(normalizedName)) {
-            const existing = groups.get(normalizedName)!;
-            existing.rateOptions.push(rateOption);
-            existing.roomTypes.push(roomType);
-
-            // Update lowest price
-            if (priceInfo.amount < existing.lowestPrice) {
-                existing.lowestPrice = priceInfo.amount;
-            }
-
-            // Merge photos if new ones found
-            if (roomType.roomPhotos?.length && !existing.roomPhotos?.length) {
-                existing.roomPhotos = roomType.roomPhotos;
-            }
-        } else {
-            groups.set(normalizedName, {
-                roomName: normalizedName,
-                roomTypes: [roomType],
-                rateOptions: [rateOption],
-                lowestPrice: priceInfo.amount,
-                currency: priceInfo.currency,
-                maxOccupancy: roomType.maxOccupancy || roomType.rates?.[0]?.maxOccupancy,
-                bedType: roomType.bedType,
-                roomSize: roomType.roomSize,
-                roomPhotos: roomType.roomPhotos,
-                roomDescription: roomType.roomDescription,
-                amenities: roomType.amenities
-            });
+        if (room.price.amount < groups[name].lowestPrice) {
+            groups[name].lowestPrice = room.price.amount;
+            groups[name].currency = room.price.currency;
         }
     });
 
-    // Sort rate options by price within each group
-    groups.forEach((group) => {
-        group.rateOptions.sort((a, b) => a.price - b.price);
-    });
-
-    return Array.from(groups.values());
+    // Sort rates by price
+    return Object.values(groups).map(g => ({
+        ...g,
+        rateOptions: g.rateOptions.sort((a, b) => a.price - b.price)
+    }));
 }
 
-/**
- * Find a rate option by offer ID within grouped rooms
- */
-export function findRateByOfferId(
-    groupedRoom: GroupedRoom,
-    offerId: string | undefined
-): RateOption | undefined {
+export function findRateByOfferId(groupedRoom: GroupedRoom, offerId?: string): RoomRate | undefined {
     if (!offerId) return groupedRoom.rateOptions[0];
-    return groupedRoom.rateOptions.find(r => r.offerId === offerId) || groupedRoom.rateOptions[0];
+    return groupedRoom.rateOptions.find(r => r.offerId === offerId);
 }
 
-/**
- * Get the room image with fallback to hotel images
- */
-export function getRoomImage(
-    groupedRoom: GroupedRoom,
-    index: number,
-    hotelImages: string[] = []
-): string | undefined {
-    return groupedRoom.roomPhotos?.[0] || hotelImages[index % Math.max(hotelImages.length, 1)];
+// ============================================================================
+// Other Utilities
+// ============================================================================
+
+export function extractRoomPrice(room: RoomType): number {
+    return room.price.amount;
+}
+
+export function hasFreeCancellation(room: RoomType): boolean {
+    return room.cancellationPolicies?.refundableTag === 'RFN';
+}
+
+export function getRoomRefundableTag(room: RoomType): string | undefined {
+    return room.cancellationPolicies?.refundableTag;
+}
+
+export function formatCancellationPolicy(policy?: CancellationPolicy): string {
+    if (!policy) return 'Policy details unavailable';
+    if (policy.refundableTag === 'NRFN') return 'Non-refundable';
+    if (policy.refundableTag === 'RFN') return 'Free cancellation';
+    return policy.refundableTag || 'Flexible policy';
 }

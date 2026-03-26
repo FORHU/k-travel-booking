@@ -43,7 +43,7 @@ export interface BookingParams {
 }
 
 /**
- * Prebook response from LiteAPI
+ * Prebook response from provider
  */
 export interface PrebookResponse {
   prebookId: string;
@@ -53,16 +53,13 @@ export interface PrebookResponse {
     total: number;
   };
   status?: string;
-  /** Cancellation policies from prebook response */
   cancellationPolicies?: CancellationPolicy;
-  /** Payment SDK secret key (when usePaymentSdk: true) */
   secretKey?: string;
-  /** Payment SDK transaction ID (when usePaymentSdk: true) */
   transactionId?: string;
 }
 
 /**
- * Booking response from LiteAPI
+ * Booking response from provider
  */
 export interface BookingResponse {
   bookingId: string;
@@ -119,7 +116,7 @@ export interface BookingRecord {
 }
 
 /**
- * Cancellation policy info from LiteAPI
+ * Cancellation policy info
  */
 export interface CancellationPolicy {
   cancelPolicyInfos?: CancelPolicyInfo[];
@@ -135,7 +132,7 @@ export interface CancelPolicyInfo {
 }
 
 /**
- * Booking details from LiteAPI
+ * Booking details from provider
  */
 export interface BookingDetailsResponse {
   bookingId: string;
@@ -180,7 +177,7 @@ export interface BookingDetailsResponse {
 }
 
 /**
- * Cancellation response from LiteAPI
+ * Cancellation response from provider
  */
 export interface CancellationResponse {
   bookingId: string;
@@ -204,7 +201,7 @@ export interface AmendBookingParams {
 }
 
 /**
- * Response from LiteAPI amend endpoint
+ * Response from provider amend endpoint
  */
 export interface AmendBookingResponse {
   bookingId: string;

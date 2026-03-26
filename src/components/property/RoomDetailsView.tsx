@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { type Property } from '@/types';
+import { type HotelProperty } from '@/types/properties';
 import { ArrowLeft, User, Bed, MapPin, Check, Share2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useBookingActions } from '@/stores/bookingStore';
 import { useUserCurrency } from '@/stores/searchStore';
@@ -24,7 +24,7 @@ const stripHtml = (html: string): string => {
 };
 
 interface RoomDetailsViewProps {
-    property: Property;
+    property: HotelProperty;
     room: any; // Using existing loose type for room
     onBack: () => void;
     searchParams?: { checkIn?: string; checkOut?: string; adults?: number; children?: number; currency?: string };

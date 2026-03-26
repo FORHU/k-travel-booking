@@ -1,7 +1,6 @@
 /**
  * Country name → ISO 3166-1 alpha-2 code mapping.
- * Used to derive countryCode from LiteAPI's formattedAddress field,
- * which returns country names (e.g., "South Korea") instead of codes.
+ * Used to derive countryCode from provider's address fields.
  */
 export const COUNTRY_NAME_TO_CODE: Record<string, string> = {
     // Asia-Pacific
@@ -142,24 +141,16 @@ export const COUNTRY_NAME_TO_CODE: Record<string, string> = {
 };
 
 /**
- * Extract country code from a LiteAPI formattedAddress string.
- * The country is usually the last part after the last comma.
- * e.g., "Benguet, Philippines" → "PH", "South Korea" → "KR"
- *
- * If formattedAddress is empty (e.g., city-states like Singapore),
- * falls back to checking if displayName itself is a country name.
+ * Extract country code from a formattedAddress string.
  */
 export function extractCountryCode(formattedAddress: string, displayName?: string): string {
     if (formattedAddress) {
-        // Get the last part (country name) after the last comma
         const parts = formattedAddress.split(',').map(s => s.trim());
         const countryName = parts[parts.length - 1].toLowerCase();
         const code = COUNTRY_NAME_TO_CODE[countryName];
         if (code) return code;
     }
 
-    // Fallback: the displayName itself might be a country name
-    // (e.g., "Singapore" has empty formattedAddress)
     if (displayName) {
         const code = COUNTRY_NAME_TO_CODE[displayName.toLowerCase()];
         if (code) return code;
@@ -170,7 +161,6 @@ export function extractCountryCode(formattedAddress: string, displayName?: strin
 
 /**
  * ISO country code → currency code mapping.
- * Maps the USER's country to their local currency for display.
  */
 export const COUNTRY_TO_CURRENCY: Record<string, string> = {
     'PH': 'PHP',
@@ -192,8 +182,7 @@ export const COUNTRY_TO_CURRENCY: Record<string, string> = {
     'AE': 'AED',
     'SA': 'SAR',
     'QA': 'QAR',
-    'EU': 'EUR', // Eurozone placeholder
-    // Eurozone countries
+    'EU': 'EUR', 
     'FR': 'EUR',
     'DE': 'EUR',
     'IT': 'EUR',
@@ -214,7 +203,6 @@ export const COUNTRY_TO_CURRENCY: Record<string, string> = {
     'LV': 'EUR',
     'LT': 'EUR',
     'HR': 'EUR',
-    // Non-Euro Europe
     'CH': 'CHF',
     'SE': 'SEK',
     'NO': 'NOK',
@@ -225,20 +213,17 @@ export const COUNTRY_TO_CURRENCY: Record<string, string> = {
     'RO': 'RON',
     'BG': 'BGN',
     'IS': 'ISK',
-    // Americas
     'MX': 'MXN',
     'BR': 'BRL',
     'AR': 'ARS',
     'CL': 'CLP',
     'CO': 'COP',
     'PE': 'PEN',
-    // Africa
     'ZA': 'ZAR',
     'EG': 'EGP',
     'MA': 'MAD',
     'KE': 'KES',
     'NG': 'NGN',
-    // Others
     'NZ': 'NZD',
     'TR': 'TRY',
     'RU': 'RUB',
@@ -247,7 +232,6 @@ export const COUNTRY_TO_CURRENCY: Record<string, string> = {
 
 /**
  * Get currency code for a given user country code.
- * Defaults to USD if the country is unknown.
  */
 export function getCurrencyForCountry(countryCode: string): string {
     return COUNTRY_TO_CURRENCY[countryCode] || 'USD';

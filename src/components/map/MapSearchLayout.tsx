@@ -4,7 +4,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MapPin, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { type Property } from '@/types';
+import { type HotelProperty } from '@/types/properties';
 import { PropertyMapList, scrollToProperty } from './PropertyMapList';
 // import { PropertyMapView } from './PropertyMapView';
 import { MapModal } from './MapModal';
@@ -25,7 +25,7 @@ const PropertyMapView = dynamic(
 
 interface MapSearchLayoutProps {
     /** Properties fetched server-side and passed as props */
-    properties: Property[];
+    properties: HotelProperty[];
     /** Optional title for the property list header */
     title?: string;
 }

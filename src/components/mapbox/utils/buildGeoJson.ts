@@ -1,9 +1,5 @@
-import { type Property } from '@/types';
+import { type MappableProperty } from '@/components/map/types';
 import { formatCurrency } from '@/lib/utils';
-
-export interface MappableProperty extends Property {
-    coordinates: { lat: number; lng: number };
-}
 
 export const buildGeoJson = (properties: MappableProperty[]) => {
     return {
@@ -12,12 +8,12 @@ export const buildGeoJson = (properties: MappableProperty[]) => {
             type: 'Feature' as const,
             properties: {
                 id: p.id,
-                price: p.price,
-                formattedPrice: formatCurrency(p.price),
+                price: p.price ?? 0,
+                formattedPrice: formatCurrency(p.price ?? 0),
                 // Add other properties if needed for popups/filtering
-                name: p.name,
-                rating: p.rating,
-                image: p.images[0],
+                name: p.name || '',
+                rating: p.rating ?? 0,
+                image: p.image || (p.images && p.images.length > 0 ? p.images[0] : ''),
             },
             geometry: {
                 type: 'Point' as const,

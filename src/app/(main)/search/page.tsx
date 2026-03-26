@@ -70,7 +70,7 @@ export default async function SearchPage(props: {
                     </div>
                 }>
                     <SearchFilters
-                        initialFacilities={initialFacilities}
+                        initialFacilities={initialFacilities.data.map(f => ({ id: f.id, name: f.label }))}
                         previewCoordinates={
                             initialProperties && initialProperties.length > 0 &&
                                 initialProperties[0].coordinates &&

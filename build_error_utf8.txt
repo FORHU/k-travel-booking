@@ -1,0 +1,38 @@
+﻿
+> cheapestgo@0.0.0 build
+> next build
+
+Γû▓ Next.js 16.1.2 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 20.7s
+  Running TypeScript ...
+node.exe : Failed to compile.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program 
+Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Failed to compile 
+   .:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+./src/components/mapbox/hooks/useMapMarkers.ts:2:24
+Type error: Module '"../utils/buildGeoJson"' declares 
+'MappableProperty' locally, but it is not exported.
+
+[0m [90m 1 |[39m [36mimport[39m { useMemo } 
+[36mfrom[39m [32m'react'[39m[33m;[39m
+[31m[1m>[22m[39m[90m 2 |[39m [36mimport[39m { 
+buildGeoJson[33m,[39m [33mMappableProperty[39m } 
+[36mfrom[39m [32m'../utils/buildGeoJson'[39m[33m;[39m
+ [90m   |[39m                        [31m[1m^[22m[39m
+ [90m 3 |[39m
+ [90m 4 |[39m [36mexport[39m [36mconst[39m useMapMarkers 
+[33m=[39m (properties[33m:[39m 
+[33mMappableProperty[39m[]) [33m=>[39m {
+ [90m 5 |[39m     [90m// Filter out invalid coordinates 
+(defensive coding)[39m[0m
+Next.js build worker exited with code: 1 and signal: null

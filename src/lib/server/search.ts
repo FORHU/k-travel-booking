@@ -1,4 +1,3 @@
-import { autocompleteLiteApi } from './liteapi';
 import { extractCountryCode } from '@/lib/constants/countries';
 
 export interface AutocompleteResult {
@@ -9,8 +8,25 @@ export interface AutocompleteResult {
     id?: string;
 }
 
+// Local fallback for popular cities
+const POPULAR_CITIES = [
+    { name: 'Seoul', country: 'South Korea', countryCode: 'KR' },
+    { name: 'Busan', country: 'South Korea', countryCode: 'KR' },
+    { name: 'Jeju', country: 'South Korea', countryCode: 'KR' },
+    { name: 'Tokyo', country: 'Japan', countryCode: 'JP' },
+    { name: 'Osaka', country: 'Japan', countryCode: 'JP' },
+    { name: 'Bangkok', country: 'Thailand', countryCode: 'TH' },
+    { name: 'Manila', country: 'Philippines', countryCode: 'PH' },
+    { name: 'Cebu', country: 'Philippines', countryCode: 'PH' },
+    { name: 'Da Nang', country: 'Vietnam', countryCode: 'VN' },
+    { name: 'Singapore', country: 'Singapore', countryCode: 'SG' },
+    { name: 'London', country: 'United Kingdom', countryCode: 'GB' },
+    { name: 'Paris', country: 'France', countryCode: 'FR' },
+    { name: 'New York', country: 'USA', countryCode: 'US' },
+];
+
 /**
- * Autocomplete destinations via LiteAPI.
+ * Autocomplete destinations (Local fallback version).
  */
 export async function autocompleteDestinations(
     query: string
@@ -20,35 +36,23 @@ export async function autocompleteDestinations(
     }
 
     try {
-        const res = await autocompleteLiteApi(query);
+        const normalizedQuery = query.toLowerCase().trim();
+        const matches = POPULAR_CITIES.filter(city => 
+            city.name.toLowerCase().includes(normalizedQuery) || 
+            city.country.toLowerCase().includes(normalizedQuery)
+        ).map(city => ({
+            type: 'city' as const,
+            title: city.name,
+            subtitle: city.country,
+            countryCode: city.countryCode,
+        }));
 
-        if (res && res.data) {
-            const mapped: AutocompleteResult[] = res.data.map((item: Record<string, unknown>) => {
-                const cityName = (item.displayName || item.name || '') as string;
-                const address = (item.formattedAddress || item.address || '') as string;
-
-                // LiteAPI /data/places doesn't return countryCode directly.
-                // Extract it from formattedAddress (e.g., "South Korea" → "KR")
-                // Falls back to displayName for city-states (e.g., "Singapore")
-                const countryCode = extractCountryCode(address, cityName);
-
-                return {
-                    type: 'city' as const,
-                    title: cityName,
-                    subtitle: address,
-                    countryCode,
-                    id: (item.placeId || item.id) as string | undefined,
-                };
-            });
-            return { success: true, data: mapped };
-        }
-
-        return { success: true, data: [] };
+        return { success: true, data: matches };
     } catch (error) {
         console.error('[autocompleteDestinations] Error:', error);
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Autocomplete failed',
+            error: 'Autocomplete failed',
         };
     }
 }

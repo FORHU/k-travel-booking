@@ -6,6 +6,7 @@ export enum FlightProvider {
     MYSTIFLY_V2 = 'mystifly_v2'
 }
 
+
 export type CabinClass = 'economy' | 'premium_economy' | 'business' | 'first';
 
 export type TripType = 'one-way' | 'round-trip' | 'multi-city';

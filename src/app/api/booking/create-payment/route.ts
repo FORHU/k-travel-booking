@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, error: 'Currency is required' }, { status: 400 });
         }
 
-        // Create Stripe PaymentIntent (automatic capture — refund on LiteAPI failure)
+        // Create Stripe PaymentIntent (automatic capture — refund on provider failure)
         const paymentIntent = await stripe.paymentIntents.create({
             amount: Math.round(amount * 100),
             currency: currency.toLowerCase(),

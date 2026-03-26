@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { MappableProperty } from './utils/buildGeoJson';
+import { type MappableProperty } from '@/components/map/types';
 import { useMapboxInstance } from './hooks/useMapboxInstance';
 import { useMapMarkers } from './hooks/useMapMarkers';
 import { useMapInteractions, PoiData } from './hooks/useMapInteractions';

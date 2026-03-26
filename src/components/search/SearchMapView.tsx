@@ -7,7 +7,7 @@ import { MapPropertyCard } from '@/components/map/MapPropertyCard';
 import { MapModal } from '@/components/map/MapModal';
 import { computeBounds } from '@/components/map/types';
 import type { MappableProperty } from '@/components/map/types';
-import { type Property } from '@/types';
+import { type HotelProperty } from '@/types/properties';
 import { ArrowLeft, MapPin, ChevronDown, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatCurrency, cn } from '@/lib/utils';
@@ -38,7 +38,7 @@ const SORT_LABELS: Record<SortValue, string> = {
 };
 
 interface SearchMapViewProps {
-    properties: Property[];
+    properties: HotelProperty[];
     destination?: string;
 }
 
@@ -75,9 +75,9 @@ function SearchMapView({ properties, destination }: SearchMapViewProps) {
     // Sort
     const sortedProperties = useMemo(() => {
         const sorted = [...mappableProperties];
-        if (sortBy === 'price-low') sorted.sort((a, b) => a.price - b.price);
-        else if (sortBy === 'price-high') sorted.sort((a, b) => b.price - a.price);
-        else if (sortBy === 'rating') sorted.sort((a, b) => b.rating - a.rating);
+        if (sortBy === 'price-low') sorted.sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+        else if (sortBy === 'price-high') sorted.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+        else if (sortBy === 'rating') sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
         return sorted;
     }, [mappableProperties, sortBy]);
 
@@ -130,7 +130,7 @@ function SearchMapView({ properties, destination }: SearchMapViewProps) {
     // ── Price range summary ─────────────────────────────────
     const priceRange = useMemo(() => {
         if (mappableProperties.length === 0) return null;
-        const prices = mappableProperties.map((p) => p.price).filter((p) => p > 0);
+        const prices = mappableProperties.map((p) => p.price).filter((p): p is number => typeof p === 'number' && p > 0);
         if (prices.length === 0) return null;
         return {
             min: Math.min(...prices),

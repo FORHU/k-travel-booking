@@ -1,0 +1,39 @@
+﻿Γû▓ Next.js 16.1.2 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 17.0s
+  Running TypeScript ...
+node.exe : Failed to compile.
+At C:\Users\USER\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" 
+$args
++     
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Failed to compile 
+   .:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+./src/app/property/[id]/page.tsx:30:13
+Type error: Object literal may only specify known properties, 
+and 'offerId' does not exist in type 'SearchParamsInput'.
+
+[0m [90m 28 |[39m     [36mconst[39m [{ 
+property[33m,[39m fetchedDetails }[33m,[39m reviewsData] 
+[33m=[39m [36mawait[39m [33mPromise[39m[33m.[39mall([
+ [90m 29 |[39m         fetchPropertyData(id[33m,[39m {
+[31m[1m>[22m[39m[90m 30 |[39m             
+offerId[33m:[39m searchParamsResult[33m.[39mofferId 
+[36mas[39m string[33m,[39m
+ [90m    |[39m             [31m[1m^[22m[39m
+ [90m 31 |[39m             checkIn[33m:[39m 
+searchParamsResult[33m.[39mcheckIn [36mas[39m 
+string[33m,[39m
+ [90m 32 |[39m             checkOut[33m:[39m 
+searchParamsResult[33m.[39mcheckOut [36mas[39m 
+string[33m,[39m
+ [90m 33 |[39m             adults[33m:[39m 
+searchParamsResult[33m.[39madults [36mas[39m 
+string[33m,[39m[0m
+Next.js build worker exited with code: 1 and signal: null

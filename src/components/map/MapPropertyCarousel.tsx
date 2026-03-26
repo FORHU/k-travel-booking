@@ -57,8 +57,8 @@ export const MapPropertyCarousel: React.FC<MapPropertyCarouselProps> = ({
                         {/* Image — Airbnb-style rounded */}
                         <div className="w-24 h-full relative shrink-0 rounded-l-xl overflow-hidden">
                             <Image
-                                src={property.image}
-                                alt={property.name}
+                                src={property.image || ''}
+                                alt={property.name || ''}
                                 fill
                                 className="object-cover"
                                 sizes="96px"
@@ -87,7 +87,7 @@ export const MapPropertyCarousel: React.FC<MapPropertyCarouselProps> = ({
                             <div className="flex items-end justify-between mt-1">
                                 <div>
                                     <span className="text-sm font-bold text-slate-900 dark:text-white">
-                                        ₱{property.price.toLocaleString()}
+                                        ₱{(property.price ?? 0).toLocaleString()}
                                     </span>
                                     <span className="text-[10px] text-slate-500 dark:text-slate-400">/night</span>
                                 </div>

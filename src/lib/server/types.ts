@@ -19,6 +19,43 @@ export type BookingParams = BookingConfirmInput;
 export type AmendBookingParams = AmendBookingInput;
 export type SaveBookingParams = SaveBookingInput;
 
+// Input type for the unified confirm + save flow
+export interface ConfirmAndSaveInput {
+  prebookId: string;
+  holder: { firstName: string; lastName: string; email: string };
+  guests: Array<{
+    occupancyNumber: number;
+    firstName: string;
+    lastName: string;
+    email: string;
+    remarks?: string;
+  }>;
+  payment: { method: string; transactionId?: string };
+  paymentIntentId?: string;
+  propertyName: string;
+  propertyImage?: string;
+  roomName: string;
+  checkIn: string;
+  checkOut: string;
+  adults: number;
+  children: number;
+  currency: string;
+  specialRequests?: string;
+  voucherCode?: string;
+  discountAmount?: number;
+}
+
+export interface ConfirmAndSaveResult {
+  success: boolean;
+  data?: {
+    bookingId: string;
+    status: string;
+    policyType: string;
+    policySummary: string;
+  };
+  error?: string;
+}
+
 // Result Types
 export interface PrebookResult {
     success: boolean;
@@ -31,9 +68,9 @@ export interface PrebookResult {
         };
         status?: string;
         cancellationPolicies?: CancellationPolicy;
-        /** Payment SDK secret key (when usePaymentSdk: true) */
+        /** Payment SDK secret key */
         secretKey?: string;
-        /** Payment SDK transaction ID (when usePaymentSdk: true) */
+        /** Payment SDK transaction ID */
         transactionId?: string;
     };
     error?: string;

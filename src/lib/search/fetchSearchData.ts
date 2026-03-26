@@ -3,8 +3,8 @@
  * These are pure functions that can be used in server components.
  */
 
-import { type Property } from '@/types';
-import { searchLiteApi } from '@/utils/supabase/functions';
+import { type HotelProperty } from '@/types/properties';
+import { searchOndaApi } from '@/utils/supabase/functions';
 
 // Types
 export interface SearchParams {
@@ -34,7 +34,7 @@ export interface SearchQueryParams {
     checkout: string;
     adults: number;
     children: number;
-    childrenAges?: number[]; // Array of children ages for proper LiteAPI occupancy
+    childrenAges?: number[];
     rooms: number;
     guest_nationality: string;
     currency: string;
@@ -97,72 +97,13 @@ export function buildSearchQueryParams(params: SearchParams): SearchQueryParams 
     const destination = typeof params.destination === 'string' ? params.destination : "";
     const filters = parseFilterParams(params);
 
-    // Parse children ages from comma-separated string
     const childrenAges = typeof params.childrenAges === 'string' && params.childrenAges
         ? params.childrenAges.split(',').map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 17)
         : undefined;
 
-    // countryCode comes from destination selection (autocomplete → URL param)
-    let countryCode = typeof params.countryCode === 'string' && params.countryCode
+    const countryCode = typeof params.countryCode === 'string' && params.countryCode
         ? params.countryCode : '';
 
-    // ── Fallback: derive countryCode from known city names when it's missing ──
-    // This ensures LiteAPI always gets at least (cityName + countryCode) instead of
-    // cityName alone, which causes a 400 "bad request" error for smaller cities.
-    if (!countryCode && destination) {
-        const CITY_COUNTRY: Record<string, string> = {
-            // Vietnam
-            'da nang': 'VN', 'danang': 'VN', 'ho chi minh': 'VN', 'saigon': 'VN',
-            'hanoi': 'VN', 'hoi an': 'VN', 'hue': 'VN', 'nha trang': 'VN',
-            'phu quoc': 'VN', 'vung tau': 'VN', 'ha long': 'VN',
-            // Philippines
-            'manila': 'PH', 'cebu': 'PH', 'cebu city': 'PH', 'boracay': 'PH',
-            'boracay island': 'PH', 'palawan': 'PH', 'el nido': 'PH',
-            'davao': 'PH', 'bohol': 'PH', 'baguio': 'PH', 'siargao': 'PH',
-            'pasig': 'PH', 'pasig city': 'PH', 'makati': 'PH', 'taguig': 'PH',
-            'quezon city': 'PH',
-            // Japan
-            'tokyo': 'JP', 'osaka': 'JP', 'kyoto': 'JP', 'sapporo': 'JP',
-            'fukuoka': 'JP', 'nara': 'JP', 'hiroshima': 'JP', 'okinawa': 'JP',
-            // South Korea
-            'seoul': 'KR', 'busan': 'KR', 'jeju': 'KR', 'incheon': 'KR',
-            // Thailand
-            'bangkok': 'TH', 'phuket': 'TH', 'pattaya': 'TH', 'chiang mai': 'TH',
-            'koh samui': 'TH', 'krabi': 'TH',
-            // Singapore / Malaysia
-            'singapore': 'SG', 'kuala lumpur': 'MY', 'penang': 'MY', 'langkawi': 'MY',
-            'kota kinabalu': 'MY', 'johor bahru': 'MY',
-            // Indonesia
-            'bali': 'ID', 'jakarta': 'ID', 'lombok': 'ID', 'yogyakarta': 'ID',
-            'surabaya': 'ID', 'bandung': 'ID',
-            // Middle East / India
-            'dubai': 'AE', 'abu dhabi': 'AE', 'doha': 'QA', 'istanbul': 'TR',
-            'delhi': 'IN', 'new delhi': 'IN', 'mumbai': 'IN', 'goa': 'IN',
-            'colombo': 'LK', 'kathmandu': 'NP',
-            // Europe
-            'london': 'GB', 'paris': 'FR', 'amsterdam': 'NL', 'frankfurt': 'DE',
-            'munich': 'DE', 'berlin': 'DE', 'rome': 'IT', 'milan': 'IT',
-            'madrid': 'ES', 'barcelona': 'ES', 'zurich': 'CH', 'vienna': 'AT',
-            'athens': 'GR', 'lisbon': 'PT', 'brussels': 'BE', 'prague': 'CZ',
-            'budapest': 'HU', 'warsaw': 'PL', 'stockholm': 'SE', 'oslo': 'NO',
-            'copenhagen': 'DK', 'helsinki': 'FI',
-            // Americas
-            'new york': 'US', 'los angeles': 'US', 'san francisco': 'US',
-            'miami': 'US', 'chicago': 'US', 'toronto': 'CA', 'vancouver': 'CA',
-            'cancun': 'MX', 'mexico city': 'MX',
-            // Oceania
-            'sydney': 'AU', 'melbourne': 'AU', 'auckland': 'NZ',
-        };
-        const key = destination.toLowerCase().trim();
-        // Direct lookup first, then strip common suffixes (City, Island, Province, etc.)
-        countryCode = CITY_COUNTRY[key]
-            || CITY_COUNTRY[key.replace(/\s+(city|island|province|metro|town)$/i, '')]
-            || '';
-    }
-
-    const placeId = typeof params.placeId === 'string' ? params.placeId : undefined;
-
-    // Currency comes from the user's locale preference (URL param), NOT the destination
     const currency = typeof params.currency === 'string' && params.currency
         ? params.currency : 'KRW';
 
@@ -171,18 +112,16 @@ export function buildSearchQueryParams(params: SearchParams): SearchQueryParams 
         checkout: formatSearchDate(rawCheckout) || "2026-06-05",
         adults: Number(params.adults) || 2,
         children: Number(params.children) || 0,
-        childrenAges, // Pass children ages for proper LiteAPI occupancy
+        childrenAges,
         rooms: Number(params.rooms) || 1,
         guest_nationality: typeof params.nationality === 'string' && params.nationality ? params.nationality : "KR",
         currency,
         cityName: destination,
-        // Send countryCode even if placeId exists. LiteAPI sometimes needs it for smaller cities
-        countryCode: countryCode,
-        placeId,
+        countryCode: countryCode || '',
+        placeId: typeof params.placeId === 'string' ? params.placeId : undefined,
         query: destination,
     };
 
-    // Add filter parameters if present
     if (filters.hotelName) queryParams.hotelName = filters.hotelName;
     if (filters.starRating && filters.starRating.length > 0) queryParams.starRating = filters.starRating;
     if (filters.minRating && filters.minRating > 0) queryParams.minRating = filters.minRating;
@@ -195,125 +134,47 @@ export function buildSearchQueryParams(params: SearchParams): SearchQueryParams 
     return queryParams;
 }
 
-
-// Extract price from hotel room types
-function extractPrice(hotel: any): { price: number; originalPrice?: number } {
-    let price = 0;
-    let originalPrice = undefined;
-
-    if (hotel.roomTypes && hotel.roomTypes.length > 0) {
-        const firstRoom = hotel.roomTypes[0];
-        if (firstRoom.rates && firstRoom.rates.length > 0) {
-            const total = firstRoom.rates[0]?.retailRate?.total;
-
-            if (Array.isArray(total) && total.length > 0 && typeof total[0] === 'object' && 'amount' in total[0]) {
-                price = (total[0] as any).amount || 0;
-            } else if (typeof total === 'object' && total !== null && 'amount' in total) {
-                price = (total as any).amount || 0;
-            } else if (typeof total === 'number') {
-                price = total;
-            }
-        }
-    }
-
-    return { price, originalPrice };
-}
-
-// Extract refundable tag from hotel
-function extractRefundableTag(hotel: any): string | undefined {
-    // First check hotel-level refundableTag (set by edge function)
-    let refundableTag = hotel.refundableTag;
-
-    // Fallback: check roomTypes if not found
-    if (!refundableTag && hotel.roomTypes && hotel.roomTypes.length > 0) {
-        for (const roomType of hotel.roomTypes) {
-            // Check roomType level
-            if (roomType.refundableTag) {
-                refundableTag = roomType.refundableTag;
-                break;
-            }
-            // Check rate level
-            if (roomType.rates && roomType.rates.length > 0) {
-                const rate = roomType.rates[0];
-                if (rate.refundableTag) {
-                    refundableTag = rate.refundableTag;
-                    break;
-                }
-            }
-        }
-    }
-    return refundableTag;
-}
-
-// Transform API hotel to Property
-function transformHotelToProperty(hotel: any, cityName: string, currency: string): Property {
-    const { price, originalPrice } = extractPrice(hotel);
-    const refundableTag = extractRefundableTag(hotel);
-
-    // Get review data - reviewRating is typically 0-10 scale
-    // If no reviewRating, convert starRating (1-5) to 10-scale
-    const starRating = hotel.starRating || hotel.details?.star_rating || hotel.details?.hotel_star_rating || 0;
-    let rating = hotel.reviewRating || 0;
-    if (!rating && starRating > 0) {
-        // Convert star rating to approximate review score (e.g., 3 stars = ~6.0, 4 stars = ~7.5, 5 stars = ~9.0)
-        rating = starRating * 1.8;
-    }
-
-    const reviewCount = hotel.reviewCount || hotel.details?.review_count || 0;
-
+// Transform Onda hotel to Property
+function transformOndaToProperty(hotel: any, cityName: string, currency: string): HotelProperty {
     return {
         id: hotel.hotelId,
-        name: hotel.name || `Hotel ${hotel.hotelId}`,
-        location: hotel.location || cityName,
-        description: hotel.description || hotel.details?.description || hotel.details?.hotel_description ||
-            hotel.details?.hotelDescription || hotel.details?.short_description || "No description available",
-        rating: rating,
-        reviews: reviewCount,
-        price,
+        name: hotel.name,
+        location: cityName,
+        description: hotel.description || "Onda property",
+        rating: hotel.rating || 0,
+        reviews: hotel.reviews || 0,
+        price: hotel.price || 0,
         currency,
-        originalPrice,
         image: hotel.thumbnailUrl || 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80&w=800',
-        images: hotel.details?.hotel_images_photos ? hotel.details.hotel_images_photos.map((p: any) => p.url) : [],
-        amenities: hotel.hotelFacilities || hotel.details?.hotelFacilities || hotel.details?.facilities || [],
-        badges: [],
+        images: hotel.images || [],
+        amenities: hotel.amenities || [],
+        badges: hotel.provider === 'onda' ? ['Onda'] : [],
         type: 'hotel',
         coordinates: {
-            lat: hotel.latitude || hotel.details?.latitude || hotel.details?.location?.latitude || 0,
-            lng: hotel.longitude || hotel.details?.longitude || hotel.details?.location?.longitude || 0,
+            lat: hotel.latitude || 0,
+            lng: hotel.longitude || 0,
         },
-        refundableTag,
-        distance: hotel.distance || hotel.details?.distance_from_center || hotel.details?.distance || undefined,
-        boardTypes: hotel.boardTypes || [],
-    } as Property;
+    } as HotelProperty;
 }
 
 /**
- * Main search function - fetches properties from LiteAPI.
+ * Main search function - fetches properties exclusively from Onda.
  */
-export async function fetchSearchProperties(params: SearchParams): Promise<Property[]> {
+export async function fetchSearchProperties(params: SearchParams): Promise<HotelProperty[]> {
     const queryParams = buildSearchQueryParams(params);
 
     try {
-        const data = await searchLiteApi(queryParams);
+        console.log("Fetching Onda API with params:", queryParams);
+        const result = await searchOndaApi(queryParams);
+        console.log("Onda API Result:", JSON.stringify(result, null, 2));
 
-        if (data?.data && Array.isArray(data.data)) {
-            const properties = data.data.map((hotel: any) =>
-                transformHotelToProperty(hotel, queryParams.cityName, queryParams.currency)
+        if (result?.data && Array.isArray(result.data)) {
+            return result.data.map((hotel: any) =>
+                transformOndaToProperty(hotel, queryParams.cityName, queryParams.currency)
             );
-
-            // Filter out hotels with incomplete data (ID-like names indicate missing details)
-            const filteredProperties = properties.filter((prop: Property) => {
-                // Exclude hotels where name looks like an ID (e.g., "Hotel lp38f17b", "Hotel lpe13f0")
-                const hasValidName = prop.name &&
-                    !prop.name.match(/^Hotel\s+lp[a-z0-9]+$/i) &&
-                    !prop.name.match(/^lp[a-z0-9]+$/i);
-                return hasValidName;
-            });
-
-            return filteredProperties;
         }
     } catch (e) {
-        console.error("Failed to fetch properties:", e);
+        console.error("Failed to fetch Onda properties:", e);
     }
 
     return [];

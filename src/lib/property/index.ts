@@ -6,8 +6,7 @@ export {
     getDefaultDates,
     collectRoomImages,
     combineImages,
-    transformFetchedToProperty,
-    createFallbackProperty,
+    transformOndaDetailsToProperty,
 } from './fetchPropertyData';
 
 export type {

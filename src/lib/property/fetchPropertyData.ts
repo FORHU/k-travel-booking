@@ -3,25 +3,24 @@
  * These are pure functions that can be used in server components.
  */
 
-import { preBook, getHotelDetails } from '@/utils/supabase/functions';
-import { type Property } from '@/types';
-export type PropertyData = Property;
+import { getOndaPropertyDetails } from '@/utils/supabase/functions';
+import { type HotelProperty } from '@/types/properties';
+export type PropertyData = HotelProperty;
 
 // Types
 export interface SearchParamsInput {
+    offerId?: string;
     checkIn?: string;
     checkOut?: string;
     adults?: string | number;
     children?: string | number;
     rooms?: string | number;
-    offerId?: string;
     currency?: string;
 }
 
 export interface FetchPropertyResult {
     property: PropertyData | null;
     fetchedDetails: any;
-    preBookResult: any;
 }
 
 // Format date as YYYY-MM-DD
@@ -29,11 +28,18 @@ export function formatDate(date: Date): string {
     return date.toISOString().split('T')[0];
 }
 
-// Sanitize date from URL (may be ISO strings)
+// Sanitize date from URL (may be ISO strings or YYYY-MM-DD)
 export function sanitizeDate(dateStr: string | undefined): string | undefined {
     if (!dateStr) return undefined;
     try {
-        return new Date(decodeURIComponent(dateStr)).toISOString().split('T')[0];
+        const decoded = decodeURIComponent(dateStr);
+        // If it's already YYYY-MM-DD, just return it
+        if (/^\d{4}-\d{2}-\d{2}$/.test(decoded)) return decoded;
+        
+        // Otherwise try to parse as Date and format
+        const date = new Date(decoded);
+        if (isNaN(date.getTime())) return undefined;
+        return date.toISOString().split('T')[0];
     } catch {
         return undefined;
     }
@@ -75,11 +81,10 @@ export function combineImages(
     ].filter((img, index, arr) => img && arr.indexOf(img) === index);
 }
 
-// Transform fetched details to PropertyData
-export function transformFetchedToProperty(
+// Transform fetched Onda details to PropertyData
+export function transformOndaDetailsToProperty(
     id: string,
     fetchedDetails: any,
-    preBookResult: any,
     allImages: string[],
     currency: string
 ): PropertyData {
@@ -88,86 +93,52 @@ export function transformFetchedToProperty(
         name: fetchedDetails.name || "Unknown Property",
         location: fetchedDetails.location || fetchedDetails.address || "Unknown Location",
         description: fetchedDetails.description || "No description available",
-        rating: fetchedDetails.reviewRating || fetchedDetails.starRating || 0,
+        rating: fetchedDetails.reviewRating || 0,
         reviews: fetchedDetails.reviewCount || 0,
-        price: preBookResult?.price?.amount || fetchedDetails.rates?.[0]?.price?.amount || 0,
+        price: fetchedDetails.price || 0,
         currency,
-        originalPrice: undefined,
         image: allImages[0] || '',
         images: allImages.length > 0 ? allImages : [],
-        amenities: fetchedDetails.hotelFacilities || fetchedDetails.details?.amenities || [],
-        badges: [],
+        amenities: fetchedDetails.amenities || [],
+        badges: ['Onda'],
         type: 'hotel',
         coordinates: {
-            lat: fetchedDetails.latitude || fetchedDetails.details?.latitude || fetchedDetails.details?.location?.latitude || 0,
-            lng: fetchedDetails.longitude || fetchedDetails.details?.longitude || fetchedDetails.details?.location?.longitude || 0
+            lat: fetchedDetails.latitude || 0,
+            lng: fetchedDetails.longitude || 0
         }
     };
 }
 
-// Create fallback property from prebook result
-export function createFallbackProperty(id: string, preBookResult: any, currency: string): PropertyData {
-    return {
-        id,
-        name: preBookResult?.data?.name || "Property Details Unavailable",
-        location: preBookResult?.data?.address || "Unknown Location",
-        description: "Property details could not be fetched.",
-        rating: 0,
-        reviews: 0,
-        price: preBookResult?.price?.amount || 0,
-        currency,
-        image: '',
-        images: [],
-        amenities: [],
-        badges: [],
-        type: 'hotel',
-        coordinates: { lat: 0, lng: 0 }
-    };
-}
-
 /**
- * Main data fetching function for property page.
- * Handles prebook, hotel details, and fallbacks.
+ * Main data fetching function for property page (Onda-only).
  */
 export async function fetchPropertyData(
     id: string,
     searchParams: SearchParamsInput
 ): Promise<FetchPropertyResult> {
-    let preBookResult = null;
+    const propertyId = id.startsWith('onda_') ? id.replace('onda_', '') : id;
     let fetchedDetails = null;
 
-    // 1. Invoke pre-book if offerId is present
-    if (searchParams.offerId) {
-        try {
-            preBookResult = await preBook({ 
-                offerId: searchParams.offerId as string,
-                currency: searchParams.currency || 'KRW'
-            });
-        } catch (error) {
-            console.error('Pre-book check failed:', error);
-        }
-    }
-
-    // 2. Fetch hotel details (Strictly backend)
+    // 1. Fetch hotel details from Onda
     try {
-        const targetHotelId = preBookResult?.data?.hotelId || id;
         const defaults = getDefaultDates();
         const checkIn = sanitizeDate(searchParams.checkIn as string) || defaults.checkIn;
         const checkOut = sanitizeDate(searchParams.checkOut as string) || defaults.checkOut;
 
-        fetchedDetails = await getHotelDetails(targetHotelId, {
-            checkIn,
-            checkOut,
+        const result = await getOndaPropertyDetails({
+            propertyId,
+            checkin: checkIn,
+            checkout: checkOut,
             adults: Number(searchParams.adults || 2),
             children: Number(searchParams.children || 0),
-            rooms: Number(searchParams.rooms || 1),
             currency: searchParams.currency
         });
+        fetchedDetails = result?.data;
     } catch (error) {
-        console.error('Failed to fetch property details:', error);
+        console.error('Failed to fetch Onda property details:', error);
     }
 
-    // 3. Build property data
+    // 2. Build property data
     let property: PropertyData | null = null;
 
     if (fetchedDetails) {
@@ -177,10 +148,8 @@ export async function fetchPropertyData(
             fetchedDetails.images || [],
             roomImages
         );
-        property = transformFetchedToProperty(id, fetchedDetails, preBookResult, allImages, searchParams.currency || 'KRW');
-    } else if (preBookResult || searchParams.offerId) {
-        property = createFallbackProperty(id, preBookResult, searchParams.currency || 'KRW');
+        property = transformOndaDetailsToProperty(id, fetchedDetails, allImages, searchParams.currency || 'KRW');
     }
 
-    return { property, fetchedDetails, preBookResult };
+    return { property, fetchedDetails };
 }

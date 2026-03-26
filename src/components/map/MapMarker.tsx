@@ -57,7 +57,7 @@ const MapMarker = React.memo(function MapMarker({
                                 'dark:bg-slate-900 dark:text-blue-400 dark:border-blue-500 hover:scale-105'
                             )}
                         >
-                            {formatCurrency(property.price)}
+                            {formatCurrency(property.price ?? 0)}
                         </div>
                     )}
 
@@ -87,7 +87,7 @@ const MapMarker = React.memo(function MapMarker({
                             {/* Hotel Name Label (Below Pin) */}
                             <div className="mt-1.5 bg-white rounded-md shadow-md border border-slate-200 px-2 py-1 z-30 whitespace-nowrap">
                                 <span className="text-[11.5px] font-bold text-slate-800 tracking-tight">
-                                    {property.name}
+                                    {property.name ?? ''}
                                 </span>
                             </div>
                         </div>

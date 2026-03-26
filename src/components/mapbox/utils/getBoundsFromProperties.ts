@@ -1,4 +1,4 @@
-import { MappableProperty } from './buildGeoJson';
+import { type MappableProperty } from '@/components/map/types';
 
 export interface MapBounds {
     minLat: number;

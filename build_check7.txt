@@ -1,0 +1,32 @@
+﻿Γû▓ Next.js 16.1.2 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 19.9s
+  Running TypeScript ...
+node.exe : Failed to compile.
+At C:\Users\USER\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" 
+$args
++     
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Failed to compile 
+   .:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+./src/lib/server/index.ts:17:10
+Type error: Module '"./bookings"' declares 
+'ConfirmAndSaveInput' locally, but it is not exported.
+
+[0m [90m 15 |[39m     saveBookingToDatabase[33m,[39m
+ [90m 16 |[39m     getUserBookings[33m,[39m
+[31m[1m>[22m[39m[90m 17 |[39m     type 
+[33mConfirmAndSaveInput[39m[33m,[39m
+ [90m    |[39m          [31m[1m^[22m[39m
+ [90m 18 |[39m     type 
+[33mConfirmAndSaveResult[39m[33m,[39m
+ [90m 19 |[39m } [36mfrom[39m 
+[32m'./bookings'[39m[33m;[39m
+ [90m 20 |[39m[0m
+Next.js build worker exited with code: 1 and signal: null

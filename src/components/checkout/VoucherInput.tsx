@@ -11,9 +11,9 @@ interface VoucherInputProps {
     currency: string;
     hotelId?: string;
     locationCode?: string;
-    /** Callback to re-prebook with voucher code (triggers new Payment SDK credentials) */
+    /** Callback to re-prebook with voucher code */
     onVoucherApplied?: (voucherCode: string) => Promise<any>;
-    /** Callback to re-prebook without voucher (when voucher is removed) */
+    /** Callback to re-prebook without voucher */
     onVoucherRemoved?: () => Promise<any>;
 }
 
@@ -47,8 +47,6 @@ export function VoucherInput({
         setVoucherError(null);
 
         try {
-            // API route → server utility → edge function
-            // ALL validation and calculation happens server-side
             const result = await apiFetch('/api/voucher/validate', {
                 code: voucherCode.trim(),
                 bookingPrice,
@@ -69,7 +67,6 @@ export function VoucherInput({
                 return;
             }
 
-            // Store server-calculated values (display only)
             const validData = data as VoucherValidationSuccess;
             setAppliedVoucher({
                 code: validData.promo.code,
@@ -80,13 +77,12 @@ export function VoucherInput({
                 description: validData.promo.description,
             });
 
-            // Re-prebook with voucher code to apply discount at LiteAPI level
+            // Re-prebook with voucher code to apply discount
             if (onVoucherApplied) {
                 try {
                     await onVoucherApplied(validData.promo.code);
                 } catch (err) {
                     console.error('Re-prebook with voucher failed:', err);
-                    // Voucher is still shown in UI; discount applied locally
                 }
             }
         } catch {
@@ -103,7 +99,6 @@ export function VoucherInput({
         }
     }, [handleApply]);
 
-    // Applied state — show badge
     if (appliedVoucher) {
         return (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-white/10 shadow-sm p-2.5 sm:p-5">
@@ -114,7 +109,6 @@ export function VoucherInput({
                     </h3>
                 </div>
 
-                {/* Applied badge */}
                 <div className="flex items-center justify-between p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 rounded-lg">
                     <div className="flex items-center gap-2">
                         <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
@@ -146,7 +140,6 @@ export function VoucherInput({
                     </button>
                 </div>
 
-                {/* Discount amount */}
                 <div className="mt-2 text-right">
                     <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
                         -₱{appliedVoucher.discountAmount.toLocaleString()} saved
@@ -156,7 +149,6 @@ export function VoucherInput({
         );
     }
 
-    // Input state
     return (
         <div className="bg-white dark:bg-slate-900 rounded-lg sm:rounded-xl border border-slate-200 dark:border-white/10 shadow-sm p-2.5 sm:p-5">
             <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-3">
@@ -203,7 +195,6 @@ export function VoucherInput({
                 </button>
             </div>
 
-            {/* Error message */}
             {voucherError && (
                 <div className="flex items-center gap-1.5 mt-2 text-red-600 dark:text-red-400">
                     <AlertCircle size={14} className="flex-shrink-0" />

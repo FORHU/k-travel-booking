@@ -1,5 +1,5 @@
-/** LiteAPI Facility IDs (common ones) */
-export const FACILITIES = [
+/** Common Hotel Facility IDs */
+export const HOTEL_FACILITIES = [
     { id: 28, label: 'Free WiFi' },
     { id: 433, label: 'Swimming Pool' },
     { id: 107, label: 'Spa' },
@@ -13,3 +13,6 @@ export const FACILITIES = [
     { id: 25, label: 'Pet Friendly' },
     { id: 46, label: 'Business Center' },
 ] as const;
+
+/** Alias for backward compatibility */
+export const FACILITIES = HOTEL_FACILITIES;

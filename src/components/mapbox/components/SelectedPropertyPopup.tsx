@@ -1,7 +1,7 @@
 import React from 'react';
 import { MapPopup } from '@/components/map/MapPopup';
 import { MapMarker } from '@/components/map/MapMarker';
-import { MappableProperty } from '../utils/buildGeoJson';
+import { MappableProperty } from '@/components/map/types';
 
 interface SelectedPropertyPopupProps {
     selectedProperty: MappableProperty | null;

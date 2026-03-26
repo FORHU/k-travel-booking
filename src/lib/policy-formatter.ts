@@ -15,7 +15,7 @@ export function getPolicyTitle(type: BookingPolicyType): string {
             return 'Partial Refund Available';
         case 'tiered':
             return 'Conditional Cancellation';
-        default:
+    default:
             return 'Cancellation Policy';
     }
 }
@@ -62,13 +62,9 @@ export function formatTierRow(tier: PolicyTier, currency: string): string {
     } else if (tier.penaltyType === 'nights') {
         penaltyText = `${tier.penaltyAmount} night(s) penalty`;
     } else {
-        // Fixed amount
         penaltyText = `${formatCurrency(tier.penaltyAmount, currency)} penalty`;
     }
 
-    // Logic: "From [Date]: [Penalty]"
-    // Or "Cancel after [Date]: [Penalty]"?
-    // Usually tiers mean "If you cancel starting from this time..."
     return `After ${date}: ${penaltyText}`;
 }
 
@@ -115,13 +111,11 @@ export function generatePolicyNuances(
     if (type === 'non_refundable') {
         lines.push('Non-refundable: 100% penalty applies immediately.');
     } else {
-        // Sort tiers just in case
         const sorted = [...tiers].sort(
             (a, b) => new Date(a.cancelDeadline).getTime() - new Date(b.cancelDeadline).getTime()
         );
 
         if (sorted.length === 0 && type === 'free_cancellation') {
-            // already handled by description, but can add explicit line
             lines.push('No cancellation fees.');
         }
 
@@ -144,7 +138,7 @@ export function generatePolicyNuances(
 }
 
 // ============================================================================
-// Bridge: Raw LiteAPI Data → BookingPolicyType
+// Bridge: Provider Data → BookingPolicyType
 // ============================================================================
 
 interface RawCancelPolicyInfo {
@@ -155,15 +149,7 @@ interface RawCancelPolicyInfo {
 }
 
 /**
- * Derives a BookingPolicyType from raw LiteAPI cancellation data.
- * Use this when you only have the LiteAPI response (not a BookingPolicySnapshot).
- *
- * KEY: refundableTag defines how to interpret tiers:
- *   RFN  → tiers represent after-deadline penalties; before first tier = FREE
- *   NRFN → tiers represent before-deadline fees; after all tiers = FULL PENALTY
- *
- * So an RFN booking with penalty tiers is still "free cancellation" (with a deadline).
- * An NRFN booking with penalty tiers is "partial refund" (some money back before deadline).
+ * Derives a BookingPolicyType from raw cancellation data.
  */
 export function derivePolicyType(
     refundableTag?: string,
@@ -178,27 +164,20 @@ export function derivePolicyType(
         const hasFreePeriod = policies.some((p) => p.amount === 0);
         const hasPenalty = policies.some((p) => p.amount > 0);
 
-        // RFN: free cancellation rate — tiers are after-deadline penalties
         if (isRFN) {
-            if (hasPenalty) return 'free_cancellation'; // Free until deadline, then penalty
-            return 'free_cancellation'; // All tiers are free
+            return 'free_cancellation';
         }
 
-        // NRFN: non-refundable rate — tiers are before-deadline fees
-        // Even if tiers exist with lesser penalties, NRFN is fundamentally non-refundable.
-        // The tiers just define the penalty structure leading up to full penalty.
         if (isNRFN) {
             return 'non_refundable';
         }
 
-        // Unknown tag — use tier data directly
         if (hasFreePeriod && !hasPenalty) return 'free_cancellation';
         if (hasFreePeriod && hasPenalty) return 'tiered';
         if (!hasFreePeriod && hasPenalty) return 'partial_refund';
         return 'free_cancellation';
     }
 
-    // No tier data — fall back to tag
     if (isNRFN) return 'non_refundable';
     if (isRFN) return 'free_cancellation';
     return 'non_refundable';
@@ -206,9 +185,6 @@ export function derivePolicyType(
 
 /**
  * Extracts the free cancellation deadline from raw cancelPolicyInfos.
- *
- * For RFN bookings: the deadline is the FIRST tier's cancelTime (penalties start after).
- * For NRFN bookings: the deadline is the first 0-amount tier's cancelTime (if any).
  */
 export function getFreeCancelDeadline(
     cancelPolicyInfos?: RawCancelPolicyInfo[],
@@ -220,14 +196,11 @@ export function getFreeCancelDeadline(
         (a, b) => new Date(a.cancelTime).getTime() - new Date(b.cancelTime).getTime()
     );
 
-    // For RFN: free period ends at the first tier deadline
     const isRFN = refundableTag === 'RFN' || refundableTag === 'REFUNDABLE';
     if (isRFN) {
         return sorted[0]?.cancelTime ?? null;
     }
 
-    // For NRFN/unknown: look for explicit 0-amount tier
     const freePolicy = sorted.find((p) => p.amount === 0);
     return freePolicy?.cancelTime ?? null;
 }
-

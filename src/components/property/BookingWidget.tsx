@@ -63,10 +63,10 @@ const BookingWidget: React.FC<BookingWidgetProps> = ({ property, preBookData, se
 
                         {/* Image */}
                         <div className="h-64 bg-slate-100 dark:bg-slate-800 relative shrink-0">
-                            {viewingRoom.roomPhotos && viewingRoom.roomPhotos.length > 0 ? (
+                            {viewingRoom.images && viewingRoom.images.length > 0 ? (
                                 <div
                                     className="absolute inset-0 bg-cover bg-center"
-                                    style={{ backgroundImage: `url(${viewingRoom.roomPhotos[0]})` }}
+                                    style={{ backgroundImage: `url(${viewingRoom.images[0]})` }}
                                 />
                             ) : (
                                 <div className="flex items-center justify-center h-full text-slate-400">
@@ -78,7 +78,7 @@ const BookingWidget: React.FC<BookingWidgetProps> = ({ property, preBookData, se
                         {/* Content Scrollable Area */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
                             <h4 className="text-2xl font-display font-bold text-slate-900 dark:text-white mb-2 leading-tight">
-                                {viewingRoom.name || viewingRoom.roomName || "Selected Room"}
+                                {viewingRoom.roomName || "Selected Room"}
                             </h4>
 
                             <div className="flex flex-wrap gap-4 text-sm text-slate-500 dark:text-slate-400 mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
@@ -100,11 +100,11 @@ const BookingWidget: React.FC<BookingWidgetProps> = ({ property, preBookData, se
                                 )}
                             </div>
 
-                            {viewingRoom.roomDescription && (
+                            {viewingRoom.description && (
                                 <div className="mb-8">
                                     <h5 className="text-xs font-bold uppercase text-slate-400 mb-3 tracking-wider">Description</h5>
                                     <p className="text-base text-slate-600 dark:text-slate-300 leading-relaxed">
-                                        {viewingRoom.roomDescription}
+                                        {viewingRoom.description}
                                     </p>
                                 </div>
                             )}
@@ -115,7 +115,7 @@ const BookingWidget: React.FC<BookingWidgetProps> = ({ property, preBookData, se
                                     {(viewingRoom.amenities || ['Air conditioning', 'WiFi', 'Private Bathroom', 'Flat-screen TV', 'Soundproofing']).map((item, i) => (
                                         <div key={i} className="flex items-start gap-2.5 text-sm text-slate-700 dark:text-slate-300">
                                             <Check size={16} className="text-emerald-500 mt-0.5 shrink-0" />
-                                            <span>{typeof item === 'string' ? item : item.name}</span>
+                                            <span>{item}</span>
                                         </div>
                                     ))}
                                 </div>

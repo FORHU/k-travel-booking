@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { buildGeoJson, MappableProperty } from '../utils/buildGeoJson';
+import { buildGeoJson } from '../utils/buildGeoJson';
+import { type MappableProperty } from '@/components/map/types';
 
 export const useMapMarkers = (properties: MappableProperty[]) => {
     // Filter out invalid coordinates (defensive coding)

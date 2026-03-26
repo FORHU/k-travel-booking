@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Star, Wifi, Car, Utensils, Coffee, Check } from 'lucide-react';
-import { type Property } from '@/types';
+import { type HotelProperty } from '@/types/properties';
 
 interface ReviewsData {
     reviews: any[];
@@ -11,7 +11,7 @@ interface ReviewsData {
 }
 
 interface PropertyOverviewProps {
-    property: Property;
+    property: HotelProperty;
     reviewsData?: ReviewsData;
 }
 
@@ -40,14 +40,14 @@ import { getRatingLabel, getRatingColor as getRatingBgColor } from '@/lib/proper
 
 const PropertyOverview: React.FC<PropertyOverviewProps> = ({ property, reviewsData }) => {
     // Use real review data if available, fallback to property data
-    const rating = reviewsData?.averageRating || property.rating;
-    const reviewCount = reviewsData?.totalCount || property.reviews;
+    const rating = reviewsData?.averageRating || property.rating || 0;
+    const reviewCount = reviewsData?.totalCount || property.reviews || 0;
 
     // UI state for expanding description and amenities
     const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
     const [isAmenitiesExpanded, setIsAmenitiesExpanded] = useState(false);
 
-    const descriptionText = stripHtml(property.description);
+    const descriptionText = stripHtml(property.description || '');
     const isDescriptionLong = descriptionText.length > 150;
 
     return (
@@ -115,7 +115,7 @@ const PropertyOverview: React.FC<PropertyOverviewProps> = ({ property, reviewsDa
                 <div id="amenities-section" className="w-full scroll-mt-24 lg:scroll-mt-36">
                     <h3 className="text-[11px] lg:text-sm font-bold text-slate-900 dark:text-white mb-1 lg:mb-4">Popular amenities</h3>
                     <div className="grid grid-cols-2 lg:grid-cols-3 gap-1 lg:gap-4">
-                        {(isAmenitiesExpanded ? property.amenities : property.amenities.slice(0, 6)).map((amenity, i) => (
+                        {(isAmenitiesExpanded ? (property.amenities || []) : (property.amenities || []).slice(0, 6)).map((amenity: string, i: number) => (
                             <div key={i} className="flex items-center text-[10px] lg:text-sm text-slate-700 dark:text-slate-300">
                                 {amenity === 'Free WiFi' && <Wifi size={11} className="mr-1 lg:mr-3 shrink-0" />}
                                 {amenity === 'Parking' && <Car size={11} className="mr-1 lg:mr-3 shrink-0" />}
@@ -126,12 +126,12 @@ const PropertyOverview: React.FC<PropertyOverviewProps> = ({ property, reviewsDa
                             </div>
                         ))}
                     </div>
-                    {property.amenities.length > 6 && (
+                    { (property.amenities?.length ?? 0) > 6 && (
                         <button
                             onClick={() => setIsAmenitiesExpanded(!isAmenitiesExpanded)}
                             className="text-blue-600 text-[10px] lg:text-sm font-medium hover:underline mt-1.5 lg:mt-4 focus:outline-none"
                         >
-                            {isAmenitiesExpanded ? 'Show less amenities' : `See all ${property.amenities.length} amenities`}
+                            {isAmenitiesExpanded ? 'Show less amenities' : `See all ${property.amenities?.length ?? 0} amenities`}
                         </button>
                     )}
                 </div>

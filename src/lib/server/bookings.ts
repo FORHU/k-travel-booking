@@ -2,74 +2,26 @@ import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { createClient } from '@supabase/supabase-js';
 import { env } from "@/utils/env";
 import {
-  prebookSchema,
   bookingConfirmSchema,
-  amendBookingSchema,
   saveBookingSchema,
 } from '@/lib/schemas';
 import {
-  prebookLiteApi,
-  bookLiteApi,
-  cancelBookingLiteApi,
-  amendBookingLiteApi,
-  getBookingDetailsLiteApi,
-} from './liteapi';
-import { normalizeLiteApiPolicy } from './policy-normalizer';
+  bookOndaApi,
+  cancelBookingOndaApi,
+} from './onda';
 import type {
-  PrebookParams,
-  BookingParams,
-  AmendBookingParams,
-  SaveBookingParams,
-  PrebookResult,
-  BookingResult,
+  ConfirmAndSaveInput,
+  ConfirmAndSaveResult,
   CancelBookingResult,
+  GetUserBookingsResult,
+  PrebookParams,
+  PrebookResult,
+  BookingParams,
+  BookingResult,
+  AmendBookingParams,
   AmendBookingResult,
   BookingDetailsResult,
-  GetUserBookingsResult,
-  CancellationPolicy,
 } from './types';
-
-// Input type for the unified confirm + save flow
-export interface ConfirmAndSaveInput {
-  // LiteAPI booking params
-  prebookId: string;
-  holder: { firstName: string; lastName: string; email: string };
-  guests: Array<{
-    occupancyNumber: number;
-    firstName: string;
-    lastName: string;
-    email: string;
-    remarks?: string;
-  }>;
-  payment: { method: string; transactionId?: string };
-  /** Stripe PaymentIntent ID — confirm route verifies payment before calling LiteAPI */
-  paymentIntentId?: string;
-  // Property metadata (for DB record)
-  propertyName: string;
-  propertyImage?: string;
-  roomName: string;
-  checkIn: string;
-  checkOut: string;
-  adults: number;
-  children: number;
-  currency: string;
-  specialRequests?: string;
-  // Voucher info (optional)
-  voucherCode?: string;
-  discountAmount?: number;
-}
-
-export interface ConfirmAndSaveResult {
-  success: boolean;
-  data?: {
-    bookingId: string;
-    status: string;
-    policyType: string;
-    policySummary: string;
-  };
-  error?: string;
-}
-
 
 // ============================================================================
 // Ownership verification
@@ -98,53 +50,7 @@ export async function verifyBookingOwnership(
 }
 
 // ============================================================================
-// Prebook
-// ============================================================================
-
-export async function prebookRoom(params: PrebookParams): Promise<PrebookResult> {
-  const validation = prebookSchema.safeParse(params);
-  if (!validation.success) {
-    const firstError = validation.error.issues[0];
-    return { success: false, error: firstError?.message || 'Invalid input' };
-  }
-
-  try {
-    const result = await prebookLiteApi(validation.data);
-    return { success: true, data: result.data };
-  } catch (error) {
-    console.error('[prebookRoom] Error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Prebook failed',
-    };
-  }
-}
-
-// ============================================================================
-// Confirm booking
-// ============================================================================
-
-export async function confirmBooking(params: BookingParams): Promise<BookingResult> {
-  const validation = bookingConfirmSchema.safeParse(params);
-  if (!validation.success) {
-    const firstError = validation.error.issues[0];
-    return { success: false, error: firstError?.message || 'Invalid input' };
-  }
-
-  try {
-    const result = await bookLiteApi(validation.data);
-    return { success: true, data: result.data };
-  } catch (error) {
-    console.error('[confirmBooking] Error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Booking confirmation failed',
-    };
-  }
-}
-
-// ============================================================================
-// Confirm booking + save atomically with policy snapshot
+// Confirm booking + save atomically (Onda-only)
 // ============================================================================
 
 export async function confirmAndSaveBooking(
@@ -153,7 +59,7 @@ export async function confirmAndSaveBooking(
 ): Promise<ConfirmAndSaveResult> {
   // 1. Validate required fields
   if (!params.prebookId) {
-    return { success: false, error: 'Prebook ID is required' };
+    return { success: false, error: 'Booking identifier is required' };
   }
   if (!params.holder?.firstName || !params.holder?.lastName || !params.holder?.email) {
     return { success: false, error: 'Holder information is incomplete' };
@@ -162,52 +68,53 @@ export async function confirmAndSaveBooking(
     return { success: false, error: 'At least one guest is required' };
   }
 
-  // 2. Call LiteAPI to confirm booking
-  let liteApiResult: any;
+  let bookingId: string;
+  let bookingStatus: string;
+  let totalPrice: number;
+  let currency: string;
+  let snapshot: any;
+  let tiers: any[] = [];
+
+  // Onda Booking Flow
+  const propertyId = params.prebookId.replace('onda_', '');
+  let ondaResult: any;
   try {
-    liteApiResult = await bookLiteApi({
-      prebookId: params.prebookId,
-      holder: params.holder,
-      guests: params.guests,
-      payment: params.payment,
+    ondaResult = await bookOndaApi({
+      propertyId,
+      checkin: params.checkIn,
+      checkout: params.checkOut,
+      rateplans: [{
+        rateplan_id: params.prebookId.split('|')[1] || 'default',
+        amount: params.adults * 100, // Placeholder
+        guests: params.guests
+      }],
+      booker: params.holder,
+      currency: params.currency
     });
   } catch (error) {
-    console.error('[confirmAndSaveBooking] LiteAPI call failed:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Booking confirmation failed',
-    };
+    console.error('[confirmAndSaveBooking] Onda call failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Onda booking failed' };
   }
 
-  const bookingData = liteApiResult?.data;
-  if (!bookingData?.bookingId) {
-    console.error('[confirmAndSaveBooking] No bookingId in LiteAPI response:', liteApiResult);
-    return { success: false, error: 'Booking failed — no booking ID returned' };
+  const bookingData = ondaResult?.data;
+  if (!bookingData?.booking_number) {
+    return { success: false, error: 'Onda booking failed - no booking number' };
   }
 
-  const bookingId = bookingData.bookingId;
-  const bookingStatus = bookingData.status || 'confirmed';
+  bookingId = bookingData.booking_number;
+  bookingStatus = bookingData.status || 'confirmed';
+  totalPrice = params.adults * 100; // Placeholder
+  currency = params.currency || 'KRW';
+  
+  snapshot = {
+    policyType: 'Onda Policy',
+    summary: 'Onda cancellation policy depends on property.',
+    refundableTag: 'UNK',
+    hotelRemarks: [],
+    rawProviderResponse: ondaResult
+  };
 
-  // Extract price from LiteAPI response
-  const totalPrice =
-    typeof bookingData.price === 'number' ? bookingData.price :
-      typeof bookingData.sellingPrice === 'string' ? parseFloat(bookingData.sellingPrice) :
-        bookingData.bookedRooms?.[0]?.amount ?? params.adults * 1000; // last-resort fallback
-
-  const currency = bookingData.currency || params.currency || 'PHP';
-
-  // 3. Normalize policy from LiteAPI response
-  const rawCancellationPolicies: CancellationPolicy | null =
-    bookingData.cancellationPolicies ?? null;
-
-  const { snapshot, tiers } = normalizeLiteApiPolicy(
-    bookingId,
-    rawCancellationPolicies,
-    bookingData, // full LiteAPI response as raw snapshot
-    currency,
-  );
-
-  // 4. Atomic DB insert via service role + RPC
+  // 2. Atomic DB insert via service role + RPC
   try {
     const serviceClient = createClient(
       env.SUPABASE_URL,
@@ -241,30 +148,21 @@ export async function confirmAndSaveBooking(
       summary: snapshot.summary,
       refundable_tag: snapshot.refundableTag,
       hotel_remarks: snapshot.hotelRemarks,
-      no_show_penalty: snapshot.noShowPenalty,
-      early_departure_fee: snapshot.earlyDepartureFee,
-      free_cancel_deadline: snapshot.freeCancelDeadline,
-      raw_liteapi_response: snapshot.rawLiteapiResponse,
+      no_show_penalty: 0,
+      early_departure_fee: 0,
+      free_cancel_deadline: null,
+      raw_provider_response: snapshot.rawProviderResponse,
     };
-
-    const tiersPayload = tiers.map(t => ({
-      cancel_deadline: t.cancelDeadline,
-      penalty_amount: t.penaltyAmount,
-      penalty_type: t.penaltyType,
-      currency: t.currency,
-    }));
 
     const { data: rpcResult, error: rpcError } = await serviceClient
       .rpc('create_booking_with_policy', {
         p_booking: bookingPayload,
         p_snapshot: snapshotPayload,
-        p_tiers: tiersPayload,
+        p_tiers: tiers,
       });
 
     if (rpcError) {
       console.error('[confirmAndSaveBooking] DB transaction failed:', rpcError);
-      // Booking was confirmed in LiteAPI but DB failed — log critical
-      console.error('CRITICAL: Booking', bookingId, 'confirmed in LiteAPI but DB save failed');
       return {
         success: true,
         data: {
@@ -276,8 +174,6 @@ export async function confirmAndSaveBooking(
         error: 'Booking confirmed but failed to save details. Contact support.',
       };
     }
-
-    console.log('[confirmAndSaveBooking] Atomic save complete:', rpcResult);
 
     return {
       success: true,
@@ -303,14 +199,9 @@ export async function confirmAndSaveBooking(
   }
 }
 
-
 // ============================================================================
-// Cancel booking
+// Cancel booking (Onda-only)
 // ============================================================================
-
-import { calculateCancellation } from './cancellation-engine';
-import { createRefundRequest, processRefund } from './refunds';
-import type { LiteApiRefundInfo } from './refunds';
 
 export async function cancelBooking(
   bookingId: string,
@@ -328,228 +219,29 @@ export async function cancelBooking(
       return { success: false, error: ownerError || 'Not authorized to cancel this booking' };
     }
 
-    // 2. Calculate cancellation penalty & refund
-    const calculation = await calculateCancellation(supabase, bookingId);
-    console.log('[cancelBooking] Calculation:', calculation);
+    // Onda cancellation flow
+    const { data: booking } = await supabase.from('bookings').select('property_name, metadata').eq('booking_id', bookingId).single();
+    const propertyId = booking?.metadata?.propertyId || booking?.property_name?.split('Property ')[1]; 
+    
+    // Fallback if propertyId cannot be determined
+    const targetPropertyId = propertyId || bookingId.split('_')[0]; // last ditch attempt
 
-    // 3. Call LiteAPI to cancel
-    // LiteAPI's PUT /bookings/{id} cancels AND refunds the original card automatically.
-    const result = await cancelBookingLiteApi({ bookingId });
+    const result = await cancelBookingOndaApi({ 
+      propertyId: targetPropertyId, 
+      bookingNumber: bookingId.replace('onda_', '') 
+    });
 
-    // Extract refund info from LiteAPI's response
-    const liteApiInfo: LiteApiRefundInfo = {
-      cancellationId: result?.data?.cancellationId,
-      refund: result?.data?.refund,
-    };
-    console.log('[cancelBooking] LiteAPI refund info:', liteApiInfo);
-
-    // 4. Handle Refund Logic
-    if (calculation.refundable && calculation.refundAmount > 0) {
-      // A. Create Refund Log
-      const { success: reqSuccess, refundLogId, error: reqError } =
-        await createRefundRequest(supabase, bookingId, calculation);
-
-      if (!reqSuccess || !refundLogId) {
-        console.error('[cancelBooking] Failed to create refund request:', reqError);
-        const status = 'cancelled_refund_failed';
-        await supabase
-          .from('bookings')
-          .update({
-            status,
-            updated_at: new Date().toISOString()
-          })
-          .eq('booking_id', bookingId);
-        return {
-          success: true,
-          data: {
-            bookingId,
-            status,
-            message: 'Cancelled, but refund logging failed. Contact support.'
-          }
-        };
-      }
-
-      // B. Record the LiteAPI refund in our refund_logs
-      // LiteAPI already processed the refund — we just record it.
-      const processResult = await processRefund(supabase, refundLogId, liteApiInfo);
-      const status = processResult.success ? 'cancelled_refunded' : 'cancelled_refund_failed';
-      const message = processResult.success
-        ? 'Booking cancelled and refund processed.'
-        : 'Booking cancelled. Refund recording failed — contact support.';
-
-      return {
-        success: true,
-        data: {
-          bookingId,
-          status,
-          message,
-          refund: {
-            id: refundLogId,
-            amount: calculation.refundAmount,
-            currency: calculation.currency,
-            status: processResult.success ? 'processed' : 'failed'
-          }
-        }
-      };
-
+    if (result.success) {
+      await supabase.from('bookings').update({ status: 'cancelled' }).eq('booking_id', bookingId);
+      return { success: true, data: { bookingId, status: 'cancelled', message: 'Onda booking cancelled successfully.' } };
     } else {
-      // Non-refundable flow
-      const status = 'cancelled';
-      await supabase
-        .from('bookings')
-        .update({
-          status, // e.g., cancelled_non_refundable? Standard 'cancelled' is fine.
-          updated_at: new Date().toISOString()
-        })
-        .eq('booking_id', bookingId);
-
-      return {
-        success: true,
-        data: {
-          bookingId,
-          status,
-          message: 'Booking cancelled. Non-refundable.'
-        }
-      };
+      return { success: false, error: result.error || 'Onda cancellation failed' };
     }
-
   } catch (error) {
     console.error('[cancelBooking] Error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Cancellation failed',
-    };
-  }
-}
-
-
-// ============================================================================
-// Amend booking
-// ============================================================================
-
-export async function amendBooking(
-  params: AmendBookingParams,
-  user: User,
-  supabase: SupabaseClient
-): Promise<AmendBookingResult> {
-  const validation = amendBookingSchema.safeParse(params);
-  if (!validation.success) {
-    const firstError = validation.error.issues[0];
-    return { success: false, error: firstError?.message || 'Invalid input' };
-  }
-
-  try {
-    // Verify ownership
-    const { isOwner, error: ownerError } = await verifyBookingOwnership(supabase, validation.data.bookingId, user.id);
-    if (!isOwner) {
-      return { success: false, error: ownerError || 'Not authorized to modify this booking' };
-    }
-
-    // Call LiteAPI to amend
-    const result = await amendBookingLiteApi(validation.data);
-
-    // Update local database
-    await supabase
-      .from('bookings')
-      .update({
-        holder_first_name: validation.data.firstName,
-        holder_last_name: validation.data.lastName,
-        holder_email: validation.data.email,
-        special_requests: validation.data.remarks,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('booking_id', validation.data.bookingId);
-
-    return { success: true, data: result.data };
-  } catch (error) {
-    console.error('[amendBooking] Error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Amendment failed',
-    };
-  }
-}
-
-// ============================================================================
-// Get booking details
-// ============================================================================
-
-export async function getBookingDetails(
-  bookingId: string,
-  user: User,
-  supabase: SupabaseClient
-): Promise<BookingDetailsResult> {
-  if (!bookingId || typeof bookingId !== 'string' || bookingId.trim().length === 0) {
-    return { success: false, error: 'Booking ID is required' };
-  }
-
-  try {
-    // Verify ownership
-    const { isOwner, error: ownerError } = await verifyBookingOwnership(supabase, bookingId, user.id);
-    if (!isOwner) {
-      return { success: false, error: ownerError || 'Not authorized to view this booking' };
-    }
-
-    const result = await getBookingDetailsLiteApi({ bookingId });
-    return { success: true, data: result.data };
-  } catch (error) {
-    console.error('[getBookingDetails] Error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to get booking details',
-    };
-  }
-}
-
-// ============================================================================
-// Save booking to database
-// ============================================================================
-
-export async function saveBookingToDatabase(
-  params: SaveBookingParams,
-  user: User,
-  supabase: SupabaseClient
-): Promise<{ success: boolean; error?: string }> {
-  const validation = saveBookingSchema.safeParse(params);
-  if (!validation.success) {
-    const firstError = validation.error.issues[0];
-    return { success: false, error: firstError?.message || 'Invalid input' };
-  }
-
-  try {
-    const data = validation.data;
-
-    const { error: insertError } = await supabase.from('bookings').insert({
-      booking_id: data.bookingId,
-      user_id: user.id,
-      property_name: data.propertyName,
-      property_image: data.propertyImage,
-      room_name: data.roomName,
-      check_in: data.checkIn,
-      check_out: data.checkOut,
-      guests_adults: data.adults,
-      guests_children: data.children,
-      total_price: data.totalPrice,
-      currency: data.currency,
-      holder_first_name: data.holderFirstName,
-      holder_last_name: data.holderLastName,
-      holder_email: data.holderEmail,
-      status: 'confirmed',
-      special_requests: data.specialRequests,
-      cancellation_policy: data.cancellationPolicy,
-    });
-
-    if (insertError) {
-      console.error('[saveBookingToDatabase] Error:', insertError);
-      return { success: false, error: 'Failed to save booking' };
-    }
-
-    return { success: true };
-  } catch (error) {
-    console.error('[saveBookingToDatabase] Error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to save booking',
     };
   }
 }
@@ -582,4 +274,159 @@ export async function getUserBookings(
       error: error instanceof Error ? error.message : 'Failed to fetch bookings',
     };
   }
+}
+
+// ============================================================================
+// Save booking (Internal/Pre-payment)
+// ============================================================================
+
+export async function saveBookingToDatabase(
+  params: any,
+  user: User,
+  supabase: SupabaseClient
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert({
+        user_id: user.id,
+        property_name: params.propertyName,
+        property_image: params.propertyImage,
+        room_name: params.roomName,
+        check_in: params.checkIn,
+        check_out: params.checkOut,
+        total_price: params.totalPrice,
+        currency: params.currency,
+        status: params.status || 'pending',
+        metadata: params.metadata || {},
+        holder_first_name: params.holder?.firstName,
+        holder_last_name: params.holder?.lastName,
+        holder_email: params.holder?.email,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { success: true, data };
+  } catch (error) {
+    console.error('[saveBookingToDatabase] Error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to save booking' };
+  }
+}
+// ============================================================================
+// Prebook room (Onda implementation)
+// ============================================================================
+
+export async function prebookRoom(params: PrebookParams): Promise<PrebookResult> {
+    try {
+        // For Onda, prebook is basically a check before booking
+        // We'll return the input params as the prebook ID for now
+        return {
+            success: true,
+            data: {
+                prebookId: params.offerId,
+                price: {
+                    total: 0 // Will be determined during actual booking
+                },
+                status: 'available'
+            }
+        };
+    } catch (error) {
+        console.error('[prebookRoom] Error:', error);
+        return { success: false, error: 'Prebook failed' };
+    }
+}
+
+// ============================================================================
+// Confirm booking (Legacy/Stripe flow)
+// ============================================================================
+
+export async function confirmBooking(params: BookingParams): Promise<BookingResult> {
+    try {
+        // This is typically called after payment. 
+        // For Onda, we use confirmAndSaveBooking in a single step usually.
+        return {
+            success: false,
+            error: 'Use confirmAndSaveBooking for Onda bookings.'
+        };
+    } catch (error) {
+        return { success: false, error: 'Booking confirmation failed' };
+    }
+}
+
+// ============================================================================
+// Get booking details
+// ============================================================================
+
+export async function getBookingDetails(
+    bookingId: string,
+    user: User,
+    supabase: SupabaseClient
+): Promise<BookingDetailsResult> {
+    try {
+        const { data: booking, error: fetchError } = await supabase
+            .from('bookings')
+            .select('*')
+            .eq('booking_id', bookingId)
+            .single();
+
+        if (fetchError || !booking) {
+            return { success: false, error: 'Booking not found' };
+        }
+
+        // Basic details response
+        return {
+            success: true,
+            data: {
+                bookingId: booking.booking_id,
+                status: booking.status,
+                hotel: {
+                    name: booking.property_name,
+                    hotelId: booking.metadata?.propertyId || ''
+                },
+                bookedRooms: [{
+                    roomType: booking.room_name,
+                    adults: booking.guests_adults,
+                    children: booking.guests_children,
+                    rate: {
+                        retailRate: {
+                            total: { amount: booking.total_price, currency: booking.currency }
+                        }
+                    }
+                }],
+                guestInfo: {
+                    guestFirstName: booking.holder_first_name,
+                    guestLastName: booking.holder_last_name,
+                    guestEmail: booking.holder_email
+                },
+                checkin: booking.check_in,
+                checkout: booking.check_out
+            }
+        };
+    } catch (error) {
+        console.error('[getBookingDetails] Error:', error);
+        return { success: false, error: 'Failed to fetch booking details' };
+    }
+}
+
+// ============================================================================
+// Amend booking (Onda implementation)
+// ============================================================================
+
+export async function amendBooking(
+    params: AmendBookingParams,
+    user: User,
+    supabase: SupabaseClient
+): Promise<AmendBookingResult> {
+    try {
+        // Onda typically doesn't support easy amendments via API
+        // Usually requires cancel and rebook.
+        return {
+            success: false,
+            error: 'Onda bookings cannot be amended via API. Please cancel and rebook.'
+        };
+    } catch (error) {
+        console.error('[amendBooking] Error:', error);
+        return { success: false, error: 'Amendment failed' };
+    }
 }

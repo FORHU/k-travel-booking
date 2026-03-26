@@ -3,8 +3,6 @@
  * Pure functions for use in server components.
  */
 
-import { getHotelReviews } from '@/utils/supabase/functions';
-
 // Types
 export interface HotelReview {
     averageScore: number;
@@ -24,7 +22,6 @@ export interface ReviewsData {
     totalCount: number;
 }
 
-// Sentiment analysis types for LiteAPI getSentiment=true response
 export interface SentimentCategory {
     name: string;
     rating: number;
@@ -84,33 +81,19 @@ export function getReviewerInitials(name: string): string {
 }
 
 /**
- * Main fetch function for reviews - server-side
- * Fetches all available reviews (up to 1000)
+ * Main fetch function for reviews (Onda-only).
+ * Note: Onda does not currently provide external review data.
  */
 export async function fetchHotelReviews(
     hotelId: string,
     options: FetchReviewsOptions = {}
 ): Promise<ReviewsDataWithSentiment> {
-    const { limit = 1000, offset = 0, getSentiment = false } = options;
-
-    try {
-        const result = await getHotelReviews(hotelId, limit, offset, getSentiment);
-        const reviews = (result.reviews || []) as HotelReview[];
-
-        return {
-            reviews,
-            averageRating: calculateAverageRating(reviews),
-            totalCount: reviews.length,
-            sentimentAnalysis: result.sentimentAnalysis || undefined,
-        };
-    } catch (error) {
-        console.error('[fetchHotelReviews] Error:', error);
-        return {
-            reviews: [],
-            averageRating: 0,
-            totalCount: 0
-        };
-    }
+    // Currently, Onda properties do not have integrated review data
+    return {
+        reviews: [],
+        averageRating: 0,
+        totalCount: 0
+    };
 }
 
 // === Helper Functions for UI ===
@@ -131,11 +114,11 @@ export function getRatingLabel(score: number): string {
  * Rating badge color based on score - consistent across app
  */
 export function getRatingColor(score: number): string {
-    if (score >= 9) return 'bg-indigo-600';    // Exceptional
-    if (score >= 8) return 'bg-emerald-500';   // Excellent
-    if (score >= 7) return 'bg-teal-500';      // Very Good
-    if (score >= 6) return 'bg-blue-500';      // Good
-    return 'bg-amber-500';                      // Average/Below
+    if (score >= 9) return 'bg-indigo-600';
+    if (score >= 8) return 'bg-emerald-500';
+    if (score >= 7) return 'bg-teal-500';
+    if (score >= 6) return 'bg-blue-500';
+    return 'bg-amber-500';
 }
 
 /**
@@ -172,7 +155,6 @@ export function calculateTravelerBreakdown(reviews: HotelReview[]): TravelerBrea
         } else if (type.includes('business') || type.includes('work')) {
             counts.business++;
         } else {
-            // Default to couple if unspecified
             counts.couple++;
         }
     });

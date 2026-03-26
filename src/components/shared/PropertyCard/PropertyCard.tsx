@@ -27,18 +27,18 @@ export interface PropertyCardProps {
     /** Additional CSS classes */
     className?: string;
 
-    // Alternative props for simple usage (backward compatible with ui/PropertyCard)
-    /** Image URL (alternative to property.image) */
+    // Alternative props for simple usage
+    /** Image URL */
     image?: string;
-    /** Property name (alternative to property.name) */
+    /** Property name */
     name?: string;
-    /** Location text (alternative to property.location) */
+    /** Location text */
     location?: string;
-    /** Rating value (alternative to property.rating) */
+    /** Rating value */
     rating?: number;
-    /** Review count (alternative to property.reviews) */
+    /** Review count */
     reviews?: number;
-    /** Current price (alternative to property.price) */
+    /** Current price */
     price?: number;
     /** Original price for discount display */
     originalPrice?: number;
@@ -78,35 +78,18 @@ const getRatingLabel = (rating: number): string => {
 };
 
 /**
- * Rating badge color based on score - distinct colors for each level
+ * Rating badge color based on score
  */
 const getRatingColor = (rating: number): string => {
-    if (rating >= 9) return 'bg-indigo-600';    // Exceptional - Deep indigo/purple
-    if (rating >= 8) return 'bg-emerald-500';   // Excellent - Vibrant green
-    if (rating >= 7) return 'bg-teal-500';      // Very Good - Teal
-    if (rating >= 6) return 'bg-blue-500';      // Good - Blue
-    return 'bg-amber-500';                       // Average - Warm amber/orange
+    if (rating >= 9) return 'bg-indigo-600';
+    if (rating >= 8) return 'bg-emerald-500';
+    if (rating >= 7) return 'bg-teal-500';
+    if (rating >= 6) return 'bg-blue-500';
+    return 'bg-amber-500';
 };
 
 /**
- * Strip HTML tags from text
- */
-const stripHtml = (html: string): string => {
-    if (!html) return '';
-    let text = html.replace(/<br\s*\/?>/gi, ' ');
-    text = text.replace(/<\/p>/gi, ' ');
-    text = text.replace(/<[^>]*>/g, '');
-    text = text.replace(/&nbsp;/gi, ' ');
-    text = text.replace(/&amp;/gi, '&');
-    text = text.replace(/&lt;/gi, '<');
-    text = text.replace(/&gt;/gi, '>');
-    text = text.replace(/&quot;/gi, '"');
-    text = text.replace(/\s+/g, ' ').trim();
-    return text;
-};
-
-/**
- * Vertical card layout (for landing page grids)
+ * Vertical card layout
  */
 const VerticalCard: React.FC<PropertyCardProps> = ({
     property,
@@ -127,14 +110,12 @@ const VerticalCard: React.FC<PropertyCardProps> = ({
 }) => {
     const targetCurrency = useUserCurrency();
     const symbol = getCurrencySymbol(targetCurrency);
-    // Use property object values or individual props
     const imgSrc = property?.image || image || '';
     const displayName = property?.name || name || '';
     const displayLocation = property?.location || location || '';
     const displayRating = property?.rating || rating;
     const displayReviews = property?.reviews || reviews;
     
-    // Convert prices
     const sourceCurrency = property?.currency || 'KRW';
     const rawPrice = property?.price || price || 0;
     const rawOriginalPrice = property?.originalPrice || originalPrice;
@@ -165,10 +146,8 @@ const VerticalCard: React.FC<PropertyCardProps> = ({
             onClick={onClick}
             className={`relative group cursor-pointer ${className}`}
         >
-            {/* Glow effect on hover */}
             <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-cyan-500 rounded-2xl opacity-0 group-hover:opacity-75 blur-xl transition-all duration-500 group-hover:duration-200" />
 
-            {/* Card content — Airbnb-style size/layout: 4:3 image, rounded corners */}
             <div className="relative bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200/50 dark:border-slate-700/50 shadow-sm hover:shadow-md dark:shadow-black/20 backdrop-blur-sm transition-shadow h-full flex flex-col">
                 <div className="relative aspect-[2/1] sm:aspect-[4/3] overflow-hidden rounded-t-2xl landscape-compact-img landscape-img flex-shrink-0">
                     <motion.div
@@ -214,7 +193,6 @@ const VerticalCard: React.FC<PropertyCardProps> = ({
                         </div>
                     )}
 
-                    {/* Includes/tags */}
                     {includes && includes.length > 0 && (
                         <div className="flex flex-wrap gap-0.5 sm:gap-1 mt-1 sm:mt-1.5 content-start">
                             {includes.map((inc) => (
@@ -250,7 +228,7 @@ const VerticalCard: React.FC<PropertyCardProps> = ({
 };
 
 /**
- * Horizontal card layout (for search results) - LiteAPI Sandbox Style
+ * Horizontal card layout (for search results)
  */
 const HorizontalCard: React.FC<PropertyCardProps> = ({
     property,
@@ -263,11 +241,8 @@ const HorizontalCard: React.FC<PropertyCardProps> = ({
     if (!property) return null;
 
     const sourceCurrency = property.currency || 'KRW';
-    const displayPrice = convertCurrency(property.price, sourceCurrency, targetCurrency);
+    const displayPrice = convertCurrency(property.price ?? 0, sourceCurrency, targetCurrency);
     const displayOriginalPrice = property.originalPrice ? convertCurrency(property.originalPrice, sourceCurrency, targetCurrency) : undefined;
-
-    // Get star rating from property (1-5 scale hotel stars)
-    const hotelStars = Math.min(5, Math.max(1, Math.round((property.rating || 0) / 2)));
 
     return (
         <motion.div
@@ -278,13 +253,11 @@ const HorizontalCard: React.FC<PropertyCardProps> = ({
             className={`flex flex-col md:flex-row bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all group cursor-pointer ${className}`}
             onClick={onClick}
         >
-            {/* Image Section */}
             <div className="md:w-[240px] relative h-[140px] md:h-auto flex-shrink-0 p-2 md:p-3 md:pr-0">
                 <div
                     className="absolute inset-2 md:inset-3 md:right-0 bg-cover bg-center rounded-xl transition-transform duration-500 group-hover:scale-105"
                     style={{ backgroundImage: `url(${property.image})` }}
                 />
-                {/* Heart icon */}
                 <button
                     className="absolute top-3 left-3 w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/90 dark:bg-slate-800/90 flex items-center justify-center hover:bg-white dark:hover:bg-slate-700 transition-colors shadow-sm"
                     onClick={(e) => e.stopPropagation()}
@@ -295,33 +268,27 @@ const HorizontalCard: React.FC<PropertyCardProps> = ({
                 </button>
             </div>
 
-            {/* Content Section */}
             <div className="flex-1 p-2 md:p-4 flex flex-col justify-between">
                 <div className="mt-1 md:mt-0">
-                    {/* Hotel Name */}
                     <h3 className="text-[12px] landscape:text-[11px] lg:text-xl font-bold text-slate-900 dark:text-white mb-0.5 md:mb-1 group-hover:text-blue-600 transition-colors line-clamp-1">
                         {property.name}
                     </h3>
 
-                    {/* Location */}
                     <div className="flex items-center text-[10px] landscape:text-[9px] lg:text-sm text-slate-500 dark:text-slate-400 mb-2 md:mb-4">
                         <MapPin className="w-2.5 h-2.5 lg:w-4 lg:h-4 mr-0.5 md:mr-1 shrink-0" />
                         <span className="line-clamp-1">{property.location}</span>
                     </div>
                 </div>
-                {/* Bottom Row: Rating and Price */}
                 <div className="flex items-end justify-between mt-1 md:mt-4">
-                    {/* Rating Section */}
                     <div className="flex items-center gap-1.5 md:gap-2">
                         <div className="px-1.5 py-0.5 lg:px-2 lg:py-1 bg-blue-600 text-white text-[9px] landscape:text-[8px] lg:text-sm font-bold rounded-md md:rounded-lg">
-                            {property.rating.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                            {(property.rating ?? 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                         </div>
                         <span className="text-[9px] landscape:text-[8px] lg:text-sm font-medium text-slate-700 dark:text-slate-300">
-                            {getRatingLabel(property.rating)}
+                             {getRatingLabel(property.rating ?? 0)}
                         </span>
                     </div>
 
-                    {/* Price Section */}
                     <div className="text-right">
                         {displayOriginalPrice && displayOriginalPrice > displayPrice && (
                             <div className="text-[8px] landscape:text-[7px] lg:text-sm text-slate-400 line-through leading-none mb-0.5 md:mb-1">
@@ -343,30 +310,9 @@ const HorizontalCard: React.FC<PropertyCardProps> = ({
     );
 };
 
-
-
 /**
  * Unified PropertyCard component
  * Supports multiple layout variants for different use cases
- *
- * @example
- * // Vertical card (landing page)
- * <PropertyCard
- *   variant="vertical"
- *   image="/hotel.jpg"
- *   name="Grand Hotel"
- *   location="Manila"
- *   price={5000}
- *   rating={9.2}
- * />
- *
- * @example
- * // Horizontal card (search results)
- * <PropertyCard
- *   variant="horizontal"
- *   property={propertyData}
- *   onClick={() => router.push(`/property/${property.id}`)}
- * />
  */
 export const PropertyCard: React.FC<PropertyCardProps> = (props) => {
     const { variant = 'vertical' } = props;

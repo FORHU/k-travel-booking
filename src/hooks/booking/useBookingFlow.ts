@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useCallback } from 'react';
 import { usePrebook } from '../mutations/usePrebook';
 import { useBooking } from '../mutations/useBooking';
@@ -34,16 +36,16 @@ export interface UseBookingFlowReturn {
   prebookError: Error | null;
   bookingError: Error | null;
 
-  /** Payment SDK secret key from prebook (when usePaymentSdk: true) */
+  /** Payment SDK secret key from prebook */
   secretKey: string | null;
-  /** Payment SDK transaction ID from prebook (when usePaymentSdk: true) */
+  /** Payment SDK transaction ID from prebook */
   transactionId: string | null;
 
   // Actions
   startPrebook: (offerId: string, currency: string, voucherCode?: string) => Promise<PrebookResponse>;
   completeBooking: (params: Omit<BookingParams, 'prebookId'>) => Promise<void>;
   refreshPrebook: (offerId: string, currency: string, voucherCode?: string) => Promise<PrebookResponse>;
-  /** Re-prebook with a voucher code (triggers new secretKey/transactionId) */
+  /** Re-prebook with a voucher code */
   reprebookWithVoucher: (voucherCode: string) => Promise<PrebookResponse | null>;
   /** Re-prebook without voucher (when voucher is removed) */
   reprebookWithoutVoucher: () => Promise<PrebookResponse | null>;
@@ -54,13 +56,12 @@ export interface UseBookingFlowReturn {
 
 /**
  * High-level hook that orchestrates the complete booking flow.
- * Now supports LiteAPI Payment SDK (usePaymentSdk: true) and voucher codes.
  *
  * Flow:
  * 1. startPrebook(offerId, currency) → gets prebookId, secretKey, transactionId
  * 2. User applies voucher → reprebookWithVoucher(code) → gets new credentials
  * 3. Payment SDK renders using secretKey
- * 4. completeBooking() uses TRANSACTION_ID payment method
+ * 4. completeBooking() uses local processing
  */
 export function useBookingFlow(): UseBookingFlowReturn {
   const prebookId = usePrebookId();
@@ -126,7 +127,6 @@ export function useBookingFlow(): UseBookingFlowReturn {
         throw new Error('Refresh prebook failed');
       }
 
-      // Clear any stale prebook mutation error from previous attempts
       prebookMutation.reset();
 
       if (result.data.prebookId) {
@@ -144,15 +144,13 @@ export function useBookingFlow(): UseBookingFlowReturn {
   );
 
   /**
-   * Re-prebook with a voucher code to get new Payment SDK credentials
+   * Re-prebook with a voucher code
    */
   const reprebookWithVoucher = useCallback(
     async (voucherCode: string): Promise<PrebookResponse | null> => {
       if (!selectedRoom?.offerId) return null;
 
-      // Get current currency from checkout store
-      // Note: We access store directly to avoid dependency cycles or passing it down
-      const currentCurrency = useCheckoutStore.getState().selectedCurrency || 'PHP';
+      const currentCurrency = useCheckoutStore.getState().selectedCurrency || 'KRW';
 
       const result = await apiFetch<PrebookResponse>('/api/booking/prebook', {
         offerId: selectedRoom.offerId,
@@ -167,7 +165,6 @@ export function useBookingFlow(): UseBookingFlowReturn {
         throw new Error('Failed to apply voucher to booking');
       }
 
-      // Clear any stale prebook mutation error from previous attempts
       prebookMutation.reset();
 
       if (result.data.prebookId) setPrebookId(result.data.prebookId);
@@ -189,13 +186,13 @@ export function useBookingFlow(): UseBookingFlowReturn {
   );
 
   /**
-   * Re-prebook without voucher (when user removes applied voucher)
+   * Re-prebook without voucher
    */
   const reprebookWithoutVoucher = useCallback(
     async (): Promise<PrebookResponse | null> => {
       if (!selectedRoom?.offerId) return null;
 
-      const currentCurrency = useCheckoutStore.getState().selectedCurrency || 'PHP';
+      const currentCurrency = useCheckoutStore.getState().selectedCurrency || 'KRW';
 
       const result = await apiFetch<PrebookResponse>('/api/booking/prebook', {
         offerId: selectedRoom.offerId,
@@ -209,7 +206,6 @@ export function useBookingFlow(): UseBookingFlowReturn {
         throw new Error('Failed to refresh booking session');
       }
 
-      // Clear any stale prebook mutation error from previous attempts
       prebookMutation.reset();
 
       if (result.data.prebookId) setPrebookId(result.data.prebookId);
@@ -232,7 +228,6 @@ export function useBookingFlow(): UseBookingFlowReturn {
 
   /**
    * Complete the booking with provided details.
-   * Uses whatever payment method the caller provides.
    */
   const completeBooking = useCallback(
     async (params: Omit<BookingParams, 'prebookId'>): Promise<void> => {
@@ -247,7 +242,6 @@ export function useBookingFlow(): UseBookingFlowReturn {
       try {
         await bookingMutation.mutateAsync(bookingParams);
       } catch (error) {
-        // Check if error is due to expired prebook session
         const errorMessage = error instanceof Error ? error.message : '';
         const errorCode = (error as { code?: string })?.code || errorMessage.match(/\d{4}/)?.[0];
         const isExpiredSession = errorCode === '2012' || errorCode === '2010';
@@ -255,7 +249,7 @@ export function useBookingFlow(): UseBookingFlowReturn {
         if (isExpiredSession && selectedRoom?.offerId) {
           const refreshResult = await refreshPrebook(
             selectedRoom.offerId,
-            'PHP'
+            'KRW'
           );
 
           if (refreshResult?.prebookId) {
@@ -270,7 +264,7 @@ export function useBookingFlow(): UseBookingFlowReturn {
         }
       }
     },
-    [prebookId, transactionId, selectedRoom?.offerId, bookingMutation, refreshPrebook]
+    [prebookId, selectedRoom?.offerId, bookingMutation, refreshPrebook]
   );
 
   /**
@@ -287,7 +281,6 @@ export function useBookingFlow(): UseBookingFlowReturn {
   }, [setPrebookId, setBookingId, prebookMutation, bookingMutation]);
 
   return {
-    // State
     prebookId,
     priceData,
     isPrebooking: prebookMutation.isPending,
@@ -297,15 +290,11 @@ export function useBookingFlow(): UseBookingFlowReturn {
     bookingError: bookingMutation.error,
     secretKey,
     transactionId,
-
-    // Actions
     startPrebook,
     completeBooking,
     refreshPrebook,
     reprebookWithVoucher,
     reprebookWithoutVoucher,
-
-    // Helpers
     reset,
   };
 }

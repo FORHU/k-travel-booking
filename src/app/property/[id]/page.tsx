@@ -48,12 +48,12 @@ export default async function PropertyPage({
 
     const mapProps = {
         hotelDetails: {
-            address: fetchedDetails?.address || property.location,
+            address: fetchedDetails?.address || property.location || '',
             city: fetchedDetails?.city || fetchedDetails?.details?.city,
             country: fetchedDetails?.country || fetchedDetails?.details?.country
         },
         coordinates: property.coordinates,
-        propertyName: property.name,
+        propertyName: property.name || '',
     };
 
     const currency = (searchParamsResult.currency as string) || 'KRW';
@@ -61,14 +61,14 @@ export default async function PropertyPage({
     return (
         <main className="min-h-screen pt-0 md:pt-6 pb-24 md:pb-20 px-3 md:px-6">
             {/* Mobile floating header — appears on scroll */}
-            <MobilePropertyHeader propertyName={property.name} />
+            <MobilePropertyHeader propertyName={property.name ?? ''} />
 
             <div className="max-w-7xl mx-auto">
                 {/* Breadcrumb + Back — desktop only (lg and up) */}
                 <FadeIn delay={0}>
                     <div className="hidden lg:block">
                         <div className="text-xs text-slate-500 mb-4">
-                            Philippines  &gt;  Baguio Properties  &gt;  {property.name}
+                            Philippines  &gt;  Baguio Properties  &gt;  {property.name ?? 'Hotel Details'}
                         </div>
                     </div>
                 </FadeIn>
@@ -85,7 +85,7 @@ export default async function PropertyPage({
                     </div>
 
                     <FadeInUp delay={0.1}>
-                        <PropertyGallery images={property.images} />
+                        <PropertyGallery images={property.images ?? []} />
                     </FadeInUp>
                 </div>
 
@@ -124,7 +124,7 @@ export default async function PropertyPage({
                             <RoomList
                                 property={property}
                                 roomTypes={fetchedDetails?.roomTypes}
-                                hotelImages={property.images}
+                                hotelImages={property.images ?? []}
                                 searchParams={{
                                     checkIn: searchParamsResult.checkIn as string,
                                     checkOut: searchParamsResult.checkOut as string,
@@ -162,7 +162,7 @@ export default async function PropertyPage({
 
                         <FadeInUp delay={0.6}>
                             <FAQSection
-                                propertyName={property.name}
+                                propertyName={property.name ?? ''}
                                 checkInTime={fetchedDetails?.checkInTime}
                                 checkOutTime={fetchedDetails?.checkOutTime}
                                 hotelFacilities={fetchedDetails?.hotelFacilities}
@@ -182,7 +182,7 @@ export default async function PropertyPage({
             </div>
 
             {/* Mobile floating booking CTA */}
-            <MobileBookingCTA price={property.price} currency={currency} />
+            <MobileBookingCTA price={property.price ?? 0} currency={currency} />
         </main>
     );
 }

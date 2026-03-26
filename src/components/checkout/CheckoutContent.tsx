@@ -12,7 +12,6 @@ import {
 import { useAuthStore, useUser } from '@/stores/authStore';
 import {
     useVoucherState,
-    useCheckoutStore,
     useCheckoutActions,
 } from '@/stores/checkoutStore';
 import { useUserCurrency } from '@/stores/searchStore';
@@ -117,7 +116,7 @@ export function CheckoutContent() {
         if (urlCurrency && urlCurrency !== selectedCurrency) {
             syncWithUserCurrency(urlCurrency);
         }
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []); // eslint-disable-next-line react-hooks/exhaustive-deps
 
     // Prebook trigger hook (handles mount, currency change, auth retry)
     const { retryPrebook } = useCheckoutPrebook({
@@ -216,7 +215,7 @@ export function CheckoutContent() {
         }
     }, [user, prebookId, selectedRoom, formData, bookingFor, priceData, selectedCurrency, property, openAuthModal, totalPrice, clearFormErrors, setFormErrors, appliedVoucher]);
 
-    // Step 2: After Stripe payment succeeds → confirm with LiteAPI
+    // Step 2: After Stripe payment succeeds → confirm booking
     const handlePaymentSuccess = useCallback(async (stripePaymentIntentId: string) => {
         try {
             if (!prebookId || !selectedRoom?.offerId) {
@@ -226,7 +225,7 @@ export function CheckoutContent() {
             const guests = buildGuestPayload(formData, bookingFor, specialRequests);
             const holder = buildHolderPayload(formData);
 
-            // Confirm booking with LiteAPI (payment already captured by Stripe)
+            // Confirm booking (payment already captured by Stripe)
             await completeBooking({
                 holder,
                 guests,
@@ -310,10 +309,8 @@ export function CheckoutContent() {
         }
     }, [prebookId, selectedRoom, formData, bookingFor, specialRequests, completeBooking, setIsSuccess, sendConfirmationEmail, property, checkIn, checkOut, priceData, selectedCurrency, adults, children, user, totalPrice, appliedVoucher]);
 
-    // Price to show on submit button (server-calculated if voucher applied)
     const displayTotalPrice = appliedVoucher ? appliedVoucher.finalPrice : totalPrice;
 
-    // Success screen
     if (isSuccess) {
         return (
             <BookingSuccess
@@ -331,12 +328,10 @@ export function CheckoutContent() {
         <>
             <main className="min-h-screen pt-4 lg:pt-6 pb-20 px-3 lg:px-4 md:px-6 relative">
                 <div className="max-w-6xl mx-auto">
-                    {/* Desktop Text Back Button */}
                     <div className="hidden md:flex mb-2 justify-between items-center">
                         <BackButton label="Modify booking" />
                     </div>
 
-                    {/* Mobile Floating Back Button */}
                     <div className="md:hidden mt-2 mb-4">
                         <button
                             onClick={() => window.history.back()}
@@ -352,7 +347,6 @@ export function CheckoutContent() {
                         Secure your booking
                     </h1>
 
-                    {/* Auth Required Banner */}
                     {!user && (
                         <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-4 rounded-lg">
                             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
@@ -376,7 +370,6 @@ export function CheckoutContent() {
                         </div>
                     )}
 
-                    {/* Prebook Error — suppress auth errors when not signed in (handled by banner above) */}
                     {prebookError && !isAuthModalOpen && !(!user && /auth/i.test(prebookError)) && (
                         <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 p-4 rounded-lg text-red-600 dark:text-red-400">
                             <strong>Error:</strong> {prebookError}
@@ -390,7 +383,6 @@ export function CheckoutContent() {
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
-                        {/* Main Content — switches between form and payment */}
                         <div className="lg:col-span-2 space-y-2.5 lg:space-y-6">
                             {step === 'form' ? (
                                 <>
@@ -417,7 +409,6 @@ export function CheckoutContent() {
                                         onChange={setSpecialRequests}
                                     />
 
-                                    {/* Voucher/Promo Section */}
                                     <VoucherInput
                                         bookingPrice={totalPrice}
                                         currency={selectedCurrency}
@@ -445,7 +436,6 @@ export function CheckoutContent() {
                                 </>
                             ) : (
                                 <>
-                                    {/* Payment step — Stripe Embedded Checkout */}
                                     <div className="space-y-4">
                                         <button
                                             onClick={() => { setStep('form'); setClientSecret(null); }}
@@ -468,7 +458,6 @@ export function CheckoutContent() {
                             )}
                         </div>
 
-                        {/* Sidebar Summary — always visible */}
                         <div className="flex flex-col gap-4 lg:gap-6 lg:sticky lg:top-24 self-start">
                             <BookingSummary
                                 propertyName={displayProperty.name}
@@ -491,7 +480,6 @@ export function CheckoutContent() {
                                 appliedVoucher={appliedVoucher}
                             />
 
-                            {/* Mobile-only Submit Button — only on form step */}
                             {step === 'form' && (
                                 <div className="block lg:hidden">
                                     <SubmitBookingButton

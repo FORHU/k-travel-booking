@@ -31,15 +31,11 @@ export interface CancellationFeeResult {
 }
 
 // ============================================================================
-// Extract special fees from raw policy data (mirrors server normalizer logic)
+// Extract special fees from raw policy data
 // ============================================================================
 
 /**
- * Extracts no-show penalty from raw cancellation policy data.
- * Checks cancelPolicyInfos for NO_SHOW type entries and hotelRemarks for mentions.
- */
-/**
- * Normalize hotelRemarks to string[] — LiteAPI may return a string or string[].
+ * Normalize hotelRemarks to string[].
  */
 function normalizeRemarks(remarks: string | string[] | undefined): string[] {
     if (!remarks) return [];
@@ -51,7 +47,6 @@ function normalizeRemarks(remarks: string | string[] | undefined): string[] {
 export function extractNoShowPenalty(policy: MinimalPolicy | null | undefined): number {
     if (!policy) return 0;
 
-    // Check cancelPolicyInfos for NO_SHOW type
     const infos = policy.cancelPolicyInfos || [];
     const noShowEntry = infos.find(
         (i) => {
@@ -61,8 +56,6 @@ export function extractNoShowPenalty(policy: MinimalPolicy | null | undefined): 
     );
     if (noShowEntry) return Number(noShowEntry.amount) || 0;
 
-    // Check hotelRemarks for no-show mentions with amounts
-    // LiteAPI may return hotelRemarks as a string or string[]
     const remarks = normalizeRemarks(policy.hotelRemarks);
     for (const remark of remarks) {
         const match = remark.match(/no[- ]?show.*?(\d+[\d,.]*)/i);
@@ -72,14 +65,9 @@ export function extractNoShowPenalty(policy: MinimalPolicy | null | undefined): 
     return 0;
 }
 
-/**
- * Extracts early departure / early checkout fee from raw cancellation policy data.
- * Checks cancelPolicyInfos for EARLY_DEPARTURE/EARLY_CHECKOUT type entries and hotelRemarks.
- */
 export function extractEarlyDepartureFee(policy: MinimalPolicy | null | undefined): number {
     if (!policy) return 0;
 
-    // Check cancelPolicyInfos for EARLY_DEPARTURE / EARLY_CHECKOUT type
     const infos = policy.cancelPolicyInfos || [];
     const edEntry = infos.find(
         (i) => {
@@ -89,8 +77,6 @@ export function extractEarlyDepartureFee(policy: MinimalPolicy | null | undefine
     );
     if (edEntry) return Number(edEntry.amount) || 0;
 
-    // Check hotelRemarks for early departure/checkout mentions with amounts
-    // LiteAPI may return hotelRemarks as a string or string[]
     const remarks = normalizeRemarks(policy.hotelRemarks);
     for (const remark of remarks) {
         const match = remark.match(/early\s+(?:departure|checkout).*?(\d+[\d,.]*)/i);
@@ -122,7 +108,7 @@ export function calculateCancellationFee(
         policy.refundableTag === 'NON_REFUNDABLE' ||
         policy.refundableTag === 'NON-REFUNDABLE';
 
-    // ── NRFN: always full penalty regardless of tiers ──
+    // ── NRFN: always full penalty ──
     if (isNRFN) {
         return { fee: totalPrice, refund: 0, currency, isFreeCancellation: false };
     }
@@ -148,37 +134,26 @@ export function calculateCancellationFee(
     let appliedFee: number;
 
     if (isRFN) {
-        // ────────────────────────────────────────────────────────
-        // RFN: "Free cancellation" rate
-        // Tiers mean: "AFTER this deadline, this penalty applies"
-        // Before the first deadline → FREE (₱0)
-        // ────────────────────────────────────────────────────────
         appliedFee = 0; // default: free
 
-        // Walk through tiers. The LATEST passed deadline's fee applies.
         for (const info of sortedInfos) {
             const deadline = new Date(info.cancelTime || info.deadline || '');
             const amount = Number(info.amount) || 0;
 
             if (now >= deadline) {
-                // We've passed this deadline — this penalty now applies
                 if (info.type === 'PERCENT' || info.type === 'percent') {
                     appliedFee = (amount / 100) * totalPrice;
                 } else {
                     appliedFee = amount;
                 }
             } else {
-                break; // Haven't reached this deadline yet
+                break;
             }
         }
     } else {
-        // ────────────────────────────────────────────────────────
-        // Unknown tag: fallback to full penalty
-        // ────────────────────────────────────────────────────────
         appliedFee = totalPrice;
     }
 
-    // Cap
     if (appliedFee > totalPrice) appliedFee = totalPrice;
     if (appliedFee < 0) appliedFee = 0;
 

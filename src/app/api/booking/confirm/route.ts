@@ -6,7 +6,6 @@ import { revalidatePath } from 'next/cache';
 
 export const dynamic = 'force-dynamic';
 
-
 export async function POST(req: Request) {
     try {
         const { user, error: authError } = await getAuthenticatedUser();
@@ -39,7 +38,7 @@ export async function POST(req: Request) {
             }
         }
 
-        // Unified flow: LiteAPI confirm → normalize policy → atomic DB save
+        // Unified flow: Provider confirm → normalize policy → atomic DB save
         const result = await confirmAndSaveBooking(body, user);
 
         if (result.success) {
@@ -52,11 +51,11 @@ export async function POST(req: Request) {
             return Response.json(result);
         }
 
-        // ── LiteAPI failed — refund Stripe payment if it was charged ──
+        // ── Provider failed — refund Stripe payment if it was charged ──
         if (body.paymentIntentId) {
             try {
                 await stripe.refunds.create({ payment_intent: body.paymentIntentId });
-                console.log('[confirm] Refunded Stripe payment after LiteAPI failure:', body.paymentIntentId);
+                console.log('[confirm] Refunded Stripe payment after provider failure:', body.paymentIntentId);
             } catch (refundErr: any) {
                 console.error('[confirm] Failed to refund:', refundErr.message);
             }

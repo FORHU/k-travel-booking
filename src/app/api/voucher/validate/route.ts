@@ -18,9 +18,6 @@ export async function POST(req: Request) {
             code: body.code,
             bookingPrice: body.bookingPrice,
             currency: body.currency,
-            hotelId: body.hotelId,
-            locationCode: body.locationCode,
-            userId: user.id,
         });
 
         return Response.json({ success: true, data: result });
