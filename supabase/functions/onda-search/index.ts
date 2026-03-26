@@ -17,8 +17,8 @@ const ONDA_BASE_URL = "https://dapi.tport.dev/gds/diglett";
 const ONDA_API_KEY = Deno.env.get("ONDA_API_KEY") || Deno.env.get("ONDA_SECRET_KEY")!;
 
 const supabaseAdmin = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
 
 // Fallback images just in case a synced property still lacks images
@@ -62,7 +62,7 @@ Deno.serve(async (req: Request) => {
 
         // Step 1: Query static properties from our Supabase database
         let dbQuery = supabaseAdmin.from('onda_properties').select('*').eq('status', 'enabled');
-        
+
         const searchTerm = (query || cityName).toLowerCase().trim();
         if (searchTerm) {
             dbQuery = dbQuery.or(`name.ilike.%${searchTerm}%,address.ilike.%${searchTerm}%`);
@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
 
         // Step 2: Search availability for matched properties (batch in groups of 20)
         const propertyIds = matchedProperties.map(p => p.id).filter(Boolean);
-        const batchSize = 20;
+        const batchSize = 15;
         const batches = [];
         for (let i = 0; i < propertyIds.length; i += batchSize) {
             batches.push(propertyIds.slice(i, i + batchSize));
@@ -143,7 +143,7 @@ Deno.serve(async (req: Request) => {
                         const propIdStr = String(contentProperty.id);
                         const numId = parseInt(propIdStr.replace(/\D/g, '') || '0', 10);
                         const mockImage = MOCK_IMAGES[numId % MOCK_IMAGES.length];
-                        
+
                         let price = result.sale_price || result.basic_price || result.price || 0;
                         if (price === 0) price = 85000 + (numId % 10) * 15000; // Mock reasonable price if missing from test API
 
