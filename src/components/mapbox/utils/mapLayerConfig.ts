@@ -36,8 +36,8 @@ export const unclusteredPointLayer: LayerProps = {
     paint: {
         'circle-color': '#ffffff',
         'circle-radius': 18,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#3b82f6',
+        'circle-stroke-width': 1,
+        'circle-stroke-color': 'rgba(0,0,0,0.12)',
         'circle-blur': 0,
     },
 };
@@ -54,6 +54,6 @@ export const unclusteredPointTextLayer: LayerProps = {
         'text-offset': [0, 0],
     },
     paint: {
-        'text-color': '#2563eb',
+        'text-color': '#0f172a',
     },
 };
