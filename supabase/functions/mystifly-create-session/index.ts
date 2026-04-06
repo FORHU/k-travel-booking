@@ -12,18 +12,17 @@
  *   MYSTIFLY_USERNAME, MYSTIFLY_PASSWORD, MYSTIFLY_ACCOUNT_NUMBER
  */
 
+import { getCorsHeaders } from '../_shared/cors.ts';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 declare const Deno: any;
 
 import { createSession, MystiflyError } from '../_shared/mystiflyClient.ts';
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 Deno.serve(async (req: Request) => {
+    const corsHeaders = getCorsHeaders(req);
+
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }

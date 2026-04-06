@@ -1,16 +1,22 @@
 "use client";
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { Sparkles, Star } from 'lucide-react';
 import { TabList, SparkleEffect, HorizontalScroll } from '@/components/ui';
-import { uniqueStays, uniqueTabs } from '@/data';
+import { type SimpleProperty, uniqueTabs } from '@/types';
+import { useUserCurrency } from '@/stores/searchStore';
+import { convertCurrency, getCurrencySymbol } from '@/lib/currency';
 
-export const ExploreUniqueStays: React.FC = () => {
+export const ExploreUniqueStays: React.FC<{ stays?: SimpleProperty[] }> = ({ stays }) => {
   const [activeTab, setActiveTab] = useState(uniqueTabs[0]);
+  const currency = useUserCurrency();
+  const symbol = getCurrencySymbol(currency);
+  const displayStays = stays || [];
 
   return (
-    <section className="relative w-full py-4 md:py-8 lg:py-10 landscape-compact-py overflow-hidden">
+    <section className="relative w-full py-4 md:py-8 lg:py-10 landscape:py-3 landscape-compact-py overflow-hidden">
 
       <div className="relative max-w-[1400px] mx-auto px-4 sm:px-6">
         <motion.div
@@ -25,7 +31,7 @@ export const ExploreUniqueStays: React.FC = () => {
           >
             <Sparkles size={24} className="text-amber-500" />
           </motion.div>
-          <h2 className="text-base sm:text-2xl md:text-3xl font-display font-bold text-slate-900 dark:text-white">
+          <h2 className="text-base sm:text-2xl md:text-3xl landscape:text-sm font-display font-bold text-slate-900 dark:text-white">
             Extraordinary Escapes
           </h2>
         </motion.div>
@@ -34,7 +40,7 @@ export const ExploreUniqueStays: React.FC = () => {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ delay: 0.1 }}
-          className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-sm md:text-base mb-3 sm:mb-4"
+          className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-sm md:text-base landscape:text-[10px] mb-3 sm:mb-4 landscape:mb-2"
         >
           One-of-a-kind places from glamping to floating villas
         </motion.p>
@@ -43,11 +49,11 @@ export const ExploreUniqueStays: React.FC = () => {
           tabs={uniqueTabs}
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          className="mb-4"
+          className="mb-4 landscape:mb-2"
         />
 
         <HorizontalScroll gap={4} scrollAmount={320}>
-          {uniqueStays.map((stay, i) => (
+          {displayStays.map((stay, i) => (
             <motion.div
               key={stay.id}
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
@@ -59,19 +65,21 @@ export const ExploreUniqueStays: React.FC = () => {
                 stiffness: 100
               }}
               whileHover={{ y: -6, scale: 1.02 }}
-              className="flex-shrink-0 w-[220px] sm:w-[260px] md:w-[320px] landscape-compact-card snap-start relative group cursor-pointer flex flex-col"
+              className="flex-shrink-0 w-[220px] sm:w-[260px] md:w-[320px] landscape:w-[160px] landscape-compact-card snap-start relative group cursor-pointer flex flex-col"
             >
-              {/* Glow effect */}
-              <div className="absolute -inset-1 bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 rounded-2xl opacity-0 group-hover:opacity-70 blur-xl transition-all duration-500 pointer-events-none" />
-
-              <div className="relative bg-white dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200/50 dark:border-slate-700/50 shadow-lg flex flex-col h-full flex-1">
-                <div className="relative aspect-[2/1] sm:aspect-[4/3] overflow-hidden flex-shrink-0 landscape-compact-img">
-                  <motion.div
-                    className="absolute inset-0 bg-cover bg-center"
-                    style={{ backgroundImage: `url(${stay.image})` }}
-                    whileHover={{ scale: 1.15 }}
-                    transition={{ duration: 0.6 }}
-                  />
+              <div className="relative bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200/50 dark:border-slate-700/50 shadow-lg flex flex-col h-full flex-1">
+                <div className="relative aspect-[2/1] sm:aspect-[4/3] md:aspect-[3/2] overflow-hidden flex-shrink-0 landscape-compact-img landscape-img">
+                  {stay.image && (
+                    <Image
+                      src={stay.image}
+                      alt={stay.name}
+                      fill
+                      sizes="(max-width: 640px) 220px, (max-width: 768px) 260px, 320px"
+                      className="object-cover transition-transform duration-500 group-hover:scale-110"
+                      priority={i === 0}
+                      loading={i === 0 ? undefined : 'lazy'}
+                    />
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
 
                   {/* Animated badge */}
@@ -79,23 +87,23 @@ export const ExploreUniqueStays: React.FC = () => {
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ delay: i * 0.06 + 0.2, type: 'spring' }}
-                    className="absolute top-1 left-1 sm:top-2 sm:left-2 px-1.5 py-px sm:px-2.5 sm:py-1 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-[8px] sm:text-xs font-medium rounded-full flex items-center gap-0.5 sm:gap-1 shadow-lg"
+                    className="absolute top-1 left-1 sm:top-2 sm:left-2 px-1.5 py-px sm:px-2.5 sm:py-1 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-[8px] sm:text-xs font-medium rounded-full flex items-center gap-0.5 sm:gap-1 shadow-lg landscape-badge"
                   >
                     <Star size={8} fill="currentColor" className="animate-pulse flex-shrink-0 sm:w-[10px] sm:h-[10px]" />
                     {stay.badge}
                   </motion.div>
                 </div>
 
-                <div className="p-1.5 sm:p-3 landscape-compact-content flex flex-col flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white text-[11px] sm:text-sm truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                <div className="p-1.5 sm:p-3 landscape:p-1.5 landscape-compact-content flex flex-col flex-1">
+                  <h3 className="font-semibold text-slate-900 dark:text-white text-[11px] sm:text-sm landscape:text-[10px] truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                     {stay.name}
                   </h3>
-                  <p className="text-[9px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{stay.location}</p>
-                  <p className="text-[11px] sm:text-base font-bold mt-auto pt-1 sm:pt-1.5">
+                  <p className="text-[9px] sm:text-xs landscape:text-[9px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{stay.location}</p>
+                  <p className="text-[11px] sm:text-base landscape:text-[10px] font-bold mt-auto pt-1 sm:pt-1.5 landscape:pt-0.5">
                     <span className="bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">
-                      ₱{stay.price.toLocaleString()}
+                      {symbol}{Math.round(convertCurrency(stay.price || 0, 'KRW', currency)).toLocaleString()}
                     </span>
-                    <span className="font-normal text-slate-400 text-[8px] sm:text-sm">/night</span>
+                    <span className="font-normal text-slate-400 text-[8px] sm:text-sm landscape:text-[8px]">/night</span>
                   </p>
                 </div>
               </div>

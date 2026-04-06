@@ -5,29 +5,27 @@
  *
  * Creates a real flight booking (PNR) by:
  *   1. Retrieving the booking session
- *   2. Calling Mystifly or Amadeus to book
- *   3. Saving the result to flight_bookings, flight_segments, passengers
- *   4. Marking the session as "booked"
+ *   2. REVALIDATING the fare (Mystifly) or repricing (Amadeus)
+ *   3. Calling Mystifly or Amadeus to book
+ *   4. Saving the result to flight_bookings, flight_segments, passengers
+ *   5. Marking the session as "booked"
  *
  * POST body:
  *   { sessionId: string }
  *
  * Returns:
- *   { success: true, bookingId: string, pnr: string }
+ *   { success, bookingId, pnr, status, confirmedPrice, confirmedCurrency }
  */
 
+import { getCorsHeaders } from '../_shared/cors.ts';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 declare const Deno: any;
 
-import { bookFlight, MystiflyError } from '../_shared/mystiflyClient.ts';
-import { amadeusRequest, AmadeusError } from '../_shared/amadeusClient.ts';
+import { bookFlight, bookFlightV2, revalidateFare, revalidateFareV2, MystiflyError } from '../_shared/mystiflyClient.ts';
+import { createDuffelOrder } from '../_shared/duffelClient.ts';
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -57,6 +55,7 @@ interface SessionFlight {
     resultIndex?: string;
     price: number;
     currency: string;
+    tripType?: string;
     validatingAirline?: string;
     segments: {
         airline: string;
@@ -67,6 +66,9 @@ interface SessionFlight {
         departureTime: string;
         arrivalTime: string;
         cabinClass?: string;
+        bookingClass?: string;
+        fareBasis?: string;
+        itineraryIndex?: number;
     }[];
     [key: string]: unknown;
 }
@@ -74,16 +76,20 @@ interface SessionFlight {
 interface BookingSession {
     id: string;
     user_id: string;
-    provider: 'mystifly' | 'amadeus';
+    provider: 'mystifly' | 'duffel' | 'mystifly_v2';
     flight: SessionFlight;
     passengers: SessionPassenger[];
     contact: SessionContact;
     status: string;
     expires_at: string;
+    payment_intent_id?: string | null;  // Set by /api/flights/book after PaymentIntent creation
+    capture_method?: string;
+    fare_policy?: Record<string, unknown> | null;
 }
 
 interface ProviderBookingResult {
     pnr: string;
+    providerOrderId?: string;
     providerStatus: string;
     rawPrice?: number;
     rawCurrency?: string;
@@ -99,9 +105,26 @@ const GENDER_TO_TITLE: Record<string, string> = {
     female: 'Ms',
 };
 
+// ─── Date Validation ────────────────────────────────────────────────
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** MED-3 FIX: Ensure date is in YYYY-MM-DD format. */
+function normalizeDate(date: string): string {
+    if (DATE_RE.test(date)) return date;
+    // Try to parse common formats
+    const parsed = new Date(date);
+    if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+    }
+    return date; // Return as-is if unparseable (will fail at provider)
+}
+
 // ─── Handler ────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+    const corsHeaders = getCorsHeaders(req);
+
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
@@ -113,7 +136,7 @@ Deno.serve(async (req: Request) => {
         const { sessionId } = JSON.parse(await req.text());
 
         if (!sessionId) {
-            return jsonResponse({ success: false, error: 'sessionId is required' }, 400);
+            return jsonResponse(corsHeaders, { success: false, error: 'sessionId is required' }, 400);
         }
 
         // ── Supabase Admin Client ──
@@ -134,14 +157,77 @@ Deno.serve(async (req: Request) => {
             .single();
 
         if (fetchError || !session) {
-            return jsonResponse({ success: false, error: 'Booking session not found' }, 404);
+            return jsonResponse(corsHeaders, { success: false, error: 'Booking session not found' }, 404);
         }
 
         const bs = session as BookingSession;
 
-        // Validate status
-        if (bs.status !== 'pending') {
-            return jsonResponse(
+        // ── Atomic status claim — prevents double-booking when webhook and
+        //    /api/flights/confirm race each other. Only one UPDATE will succeed.
+        //
+        //    Strategy: use the already-read bs.status as the optimistic lock value.
+        //    If another process changed the status between our SELECT and this UPDATE,
+        //    the WHERE clause won't match → 0 rows returned → we lost the race.
+        //
+        //    Claimable statuses:
+        //      'pending'            — Duffel: session untouched
+        //      'initiated'          — Mystifly: /book updated session after PaymentIntent created
+        //      'payment_authorized' — Mystifly: Stripe webhook set before calling us
+        const claimableStatuses = ['pending', 'initiated', 'payment_authorized'];
+
+        if (!claimableStatuses.includes(bs.status)) {
+            // Fast-path: session is already terminal — no point trying to UPDATE
+            const { data: existingBooking } = await supabase
+                .from('flight_bookings')
+                .select('id, pnr, status')
+                .eq('session_id', sessionId)
+                .maybeSingle();
+
+            if (existingBooking) {
+                return jsonResponse(corsHeaders, {
+                    success: true,
+                    bookingId: existingBooking.id,
+                    pnr: existingBooking.pnr,
+                    status: existingBooking.status,
+                    alreadyBooked: true,
+                });
+            }
+
+            return jsonResponse(corsHeaders,
+                { success: false, error: `Session already processed (status: ${bs.status})` },
+                409,
+            );
+        }
+
+        // Optimistic-lock UPDATE: only succeeds if status hasn't changed since our SELECT
+        const { data: claimedRows, error: claimError } = await supabase
+            .from('booking_sessions')
+            .update({ status: 'processing' })
+            .eq('id', sessionId)
+            .eq('status', bs.status)   // ← optimistic lock on the exact status we read
+            .select('id');
+
+        console.log('[create-booking] Claim result:', { claimed: claimedRows?.length, sessionStatus: bs.status, claimError });
+
+        if (!claimedRows || claimedRows.length === 0) {
+            // Race condition: another call already claimed this session
+            const { data: existingBooking } = await supabase
+                .from('flight_bookings')
+                .select('id, pnr, status')
+                .eq('session_id', sessionId)
+                .maybeSingle();
+
+            if (existingBooking) {
+                return jsonResponse(corsHeaders, {
+                    success: true,
+                    bookingId: existingBooking.id,
+                    pnr: existingBooking.pnr,
+                    status: existingBooking.status,
+                    alreadyBooked: true,
+                });
+            }
+
+            return jsonResponse(corsHeaders,
                 { success: false, error: `Session already processed (status: ${bs.status})` },
                 409,
             );
@@ -149,13 +235,12 @@ Deno.serve(async (req: Request) => {
 
         // Validate expiry
         if (new Date(bs.expires_at) < new Date()) {
-            // Mark as expired
             await supabase
                 .from('booking_sessions')
                 .update({ status: 'expired' })
                 .eq('id', sessionId);
 
-            return jsonResponse({ success: false, error: 'Booking session has expired' }, 410);
+            return jsonResponse(corsHeaders, { success: false, error: 'Booking session has expired' }, 410);
         }
 
         console.log('[create-booking] Processing session:', {
@@ -163,28 +248,250 @@ Deno.serve(async (req: Request) => {
             provider: bs.provider,
             userId: bs.user_id,
             passengerCount: bs.passengers.length,
+            hasRawOffer: !!bs.flight._rawOffer,
+            rawOfferType: typeof bs.flight._rawOffer,
         });
+
+        const isMystifly = bs.provider === 'mystifly' || bs.provider === 'mystifly_v2';
 
         // ── 2. Call Provider to Book ──
         let result: ProviderBookingResult;
+        let mystiflyRawData: any = null;
 
-        if (bs.provider === 'mystifly') {
-            result = await bookWithMystifly(bs.flight, bs.passengers, bs.contact);
-        } else if (bs.provider === 'amadeus') {
-            result = await bookWithAmadeus(bs.flight, bs.passengers, bs.contact);
+        if (isMystifly) {
+            try {
+                result = await bookWithMystifly(bs.flight, bs.passengers, bs.contact, bs.provider, (raw) => { mystiflyRawData = raw; });
+            } catch (mystiflyErr: any) {
+                // Mystifly booking failed — immediately cancel the authorized PaymentIntent.
+                // The card was only held (requires_capture), never charged. Release the hold.
+                const paymentIntentId = bs.payment_intent_id;
+                if (paymentIntentId) {
+                    try {
+                        const stripeKey = Deno.env.get('STRIPE_SECRET_KEY')!;
+                        const cancelRes = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}/cancel`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Basic ${btoa(stripeKey + ':')}`,
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                        });
+                        const cancelData = await cancelRes.json();
+                        console.log('[create-booking] PaymentIntent cancelled after Mystifly error:', cancelData.status);
+                    } catch (cancelErr) {
+                        console.error('[create-booking] Failed to cancel PaymentIntent after Mystifly error:', cancelErr);
+                    }
+                }
+
+                // Mark session as failed so retries don't attempt the booking again
+                await supabase.from('booking_sessions').update({ status: 'failed' }).eq('id', sessionId);
+
+                console.error('[create-booking] Mystifly booking error — PaymentIntent cancelled, session marked failed:', mystiflyErr.message);
+                return jsonResponse(corsHeaders, {
+                    success: false,
+                    error: mystiflyErr.message || 'Mystifly booking failed. Your card has not been charged.',
+                }, 502);
+            }
+        } else if (bs.provider === 'duffel') {
+            try {
+                result = await bookWithDuffel(bs.flight, bs.passengers, bs.contact);
+            } catch (duffelErr: any) {
+                console.error('[create-booking] Duffel Booking FAILED:', duffelErr.message);
+
+                // If payment was authorized/captured, we must refund
+                const paymentIntentId = bs.payment_intent_id;
+                if (paymentIntentId) {
+                    console.warn('[create-booking] Duffel failed after payment — attempting automatic Stripe refund');
+                    try {
+                        const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+                        await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}/cancel`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Basic ${btoa(stripeSecretKey + ':')}`,
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                        });
+                        // Also try refund if it was already captured
+                        await fetch(`https://api.stripe.com/v1/refunds`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Basic ${btoa(stripeSecretKey + ':')}`,
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                            body: new URLSearchParams({ payment_intent: paymentIntentId }).toString(),
+                        });
+                    } catch (refundErr) {
+                        console.error('[create-booking] Automatic refund failed (manual intervention needed):', refundErr);
+                    }
+                }
+
+                await supabase.from('booking_sessions').update({ status: 'failed' }).eq('id', sessionId);
+
+                // Build a user-friendly error — strip raw JSON dumps
+                const isDuffel500 = duffelErr.status >= 500;
+                const isExpired = /expired|no longer available|not found|gone/i.test(duffelErr.message ?? '');
+                const friendlyError = isDuffel500
+                    ? 'The airline system is temporarily unavailable. Your payment has been automatically refunded.'
+                    : isExpired
+                    ? 'This flight offer has expired. Your payment has been automatically refunded. Please search again for current availability.'
+                    : `${duffelErr.message}. Your payment has been automatically refunded.`;
+                console.error('[create-booking] Duffel error details:', duffelErr.message);
+
+                return jsonResponse(corsHeaders, {
+                    success: false,
+                    error: friendlyError,
+                }, 502);
+            }
         } else {
-            return jsonResponse({ success: false, error: `Unknown provider: ${bs.provider}` }, 400);
+            return jsonResponse(corsHeaders, { success: false, error: `Unknown provider: ${bs.provider}` }, 400);
         }
 
+        // ── 3. Mystifly: check PNR and handle payment capture / cancel ──
+        // (PNR check for Duffel is handled implicitly - if we reach here, it succeeded)
+        if (isMystifly) {
+            const paymentIntentId = bs.payment_intent_id;
+
+            if (!result.pnr) {
+                // Case A: No PNR returned — booking failed
+                // NEVER charge the user for a failed booking.
+                console.error('[create-booking] Mystifly returned no PNR — cancelling PaymentIntent');
+
+                if (paymentIntentId) {
+                    try {
+                        const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+                        const cancelRes = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}/cancel`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Basic ${btoa(stripeSecretKey + ':')}`,
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                        });
+                        const cancelData = await cancelRes.json();
+                        console.log('[create-booking] PaymentIntent cancelled:', cancelData.status);
+                    } catch (cancelErr) {
+                        console.error('[create-booking] Failed to cancel PaymentIntent:', cancelErr);
+                    }
+                }
+
+                // Mark session as failed
+                await supabase
+                    .from('booking_sessions')
+                    .update({ status: 'failed' })
+                    .eq('id', sessionId);
+
+                return jsonResponse(corsHeaders, {
+                    success: false,
+                    error: 'Mystifly did not return a PNR. Booking failed. Your card has not been charged.',
+                }, 502);
+            }
+
+            // Case B & C: PNR received — evaluate ticket status then capture
+            const ticketStatus = mystiflyRawData?.TicketStatus
+                ?? mystiflyRawData?.Status
+                ?? result.providerStatus
+                ?? 'pending';
+
+            const isTicketed = ticketStatus.toLowerCase() === 'ticketed'
+                || (result.ticketNumbers && result.ticketNumbers.length > 0);
+
+            // Extract Mystifly TimeLimit for background polling
+            const rawTimeLimit = mystiflyRawData?.TimeLimit
+                ?? mystiflyRawData?.BookingTimeLimit
+                ?? mystiflyRawData?.TicketTimeLimit;
+            const ticketTimeLimit = rawTimeLimit ? new Date(rawTimeLimit).toISOString() : null;
+
+            // Capture the authorized Stripe payment now that PNR is secured
+            if (paymentIntentId) {
+                try {
+                    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+                    const captureRes = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}/capture`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Basic ${btoa(stripeSecretKey + ':')}`,
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                    });
+                    const captureData = await captureRes.json();
+                    if (captureData.status === 'succeeded') {
+                        console.log(`[create-booking] Stripe payment captured. PNR: ${result.pnr}`);
+                    } else {
+                        console.error('[create-booking] Stripe capture failed:', captureData);
+                    }
+                } catch (captureErr) {
+                    // Log but do NOT throw — PNR exists so booking is real
+                    console.error('[create-booking] Stripe capture error (manual follow-up needed):', captureErr);
+                }
+            }
+
+            // STEP 7A: Map to internal status
+            // isTicketed → 'ticketed'
+            // Pending/OnHold → 'awaiting_ticket' (poll later via poll-pending-tickets)
+            const internalStatus = isTicketed ? 'ticketed' : 'awaiting_ticket';
+            console.log(`[create-booking] Mystifly ticket status: ${ticketStatus} → internal: ${internalStatus}`);
+
+            // Insert flight_booking record
+            const bookingPrice = result.rawPrice ?? bs.flight.price ?? 0;
+            const bookingCurrency = result.rawCurrency ?? bs.flight.currency ?? 'USD';
+
+            const { data: booking, error: insertError } = await supabase
+                .from('flight_bookings')
+                .insert({
+                    user_id: bs.user_id,
+                    pnr: result.pnr,
+                    provider: bs.provider,
+                    total_price: bookingPrice,
+                    currency: bookingCurrency,
+                    status: internalStatus,
+                    payment_intent_id: paymentIntentId ?? null,
+                    ticket_time_limit: ticketTimeLimit,
+                    trip_type: bs.flight.tripType ?? (
+                        bs.flight.segments?.length === 1 ? 'one-way'
+                            : bs.flight.segments?.length === 2
+                                && bs.flight.segments[0].origin === bs.flight.segments[1].destination
+                                ? 'round-trip'
+                                : bs.flight.segments?.length > 2 ? 'multi-city' : 'one-way'
+                    ),
+                    session_id: sessionId,
+                    fare_policy: bs.fare_policy || null,
+                })
+                .select('id')
+                .single();
+
+            if (insertError || !booking) {
+                throw new Error(`Failed to save booking: ${insertError?.message}`);
+            }
+
+            const bookingId = booking.id;
+
+            // Save segments and passengers (same for all providers)
+            await insertSegmentsAndPassengers(supabase, bookingId, bs, result);
+
+            // Mark session complete
+            await supabase.from('booking_sessions').update({ status: 'booked' }).eq('id', sessionId);
+
+            const durationMs = Date.now() - startMs;
+            console.log(`[create-booking] Mystifly complete. BookingId: ${bookingId} PNR: ${result.pnr} Status: ${internalStatus} in ${durationMs}ms`);
+
+            return jsonResponse(corsHeaders, {
+                success: true,
+                bookingId,
+                pnr: result.pnr,
+                status: internalStatus,
+                ticketStatus,
+                confirmedPrice: bookingPrice,
+                confirmedCurrency: bookingCurrency,
+            });
+        }
+
+        // ── 4. Duffel path (automatic capture — payment already charged) ──
         console.log('[create-booking] Provider returned PNR:', result.pnr);
 
-        // ── 3. Save to flight_bookings ──
         const bookingPrice = result.rawPrice ?? bs.flight.price ?? 0;
-        
-        // Determine if it was auto-ticketed
-        const finalStatus = (result.providerStatus === 'ticketed' || (result.ticketNumbers && result.ticketNumbers.length > 0)) 
-            ? 'ticketed' 
+        const bookingCurrency = result.rawCurrency ?? bs.flight.currency ?? 'USD';
+
+        const finalStatus = (result.providerStatus === 'ticketed' || (result.ticketNumbers && result.ticketNumbers.length > 0))
+            ? 'ticketed'
             : 'booked';
+
         const { data: booking, error: insertError } = await supabase
             .from('flight_bookings')
             .insert({
@@ -192,7 +499,18 @@ Deno.serve(async (req: Request) => {
                 pnr: result.pnr,
                 provider: bs.provider,
                 total_price: bookingPrice,
-                status: finalStatus, // <-- USE DYNAMIC STATUS
+                currency: bookingCurrency,
+                status: finalStatus,
+                trip_type: bs.flight.tripType ?? (
+                    bs.flight.segments?.length === 1 ? 'one-way'
+                        : bs.flight.segments?.length === 2
+                            && bs.flight.segments[0].origin === bs.flight.segments[1].destination
+                            ? 'round-trip'
+                            : bs.flight.segments?.length > 2 ? 'multi-city' : 'one-way'
+                ),
+                ...(result.providerOrderId ? { provider_order_id: result.providerOrderId } : {}),
+                session_id: sessionId,
+                fare_policy: bs.fare_policy || null,
             })
             .select('id')
             .single();
@@ -204,48 +522,9 @@ Deno.serve(async (req: Request) => {
 
         const bookingId = booking.id;
 
-        // ── 4. Save flight_segments ──
-        const segments = (bs.flight.segments ?? []).map((seg) => ({
-            booking_id: bookingId,
-            airline: seg.airline,
-            flight_number: seg.flightNumber,
-            origin: seg.origin,
-            destination: seg.destination,
-            departure: seg.departureTime,
-            arrival: seg.arrivalTime,
-        }));
+        await insertSegmentsAndPassengers(supabase, bookingId, bs, result);
 
-        if (segments.length > 0) {
-            const { error: segError } = await supabase
-                .from('flight_segments')
-                .insert(segments);
-
-            if (segError) {
-                console.error('[create-booking] Segments insert error:', segError);
-            }
-        }
-
-        // ── 5. Save passengers ──
-        const passengers = bs.passengers.map((pax, idx) => ({
-            booking_id: bookingId,
-            first_name: pax.firstName,
-            last_name: pax.lastName,
-            type: pax.type,
-            passport: pax.passport ?? null,
-            ticket_number: result.ticketNumbers?.[idx] ?? null, // <-- ADD THIS
-        }));
-
-        if (passengers.length > 0) {
-            const { error: paxError } = await supabase
-                .from('passengers')
-                .insert(passengers);
-
-            if (paxError) {
-                console.error('[create-booking] Passengers insert error:', paxError);
-            }
-        }
-
-        // ── 6. Mark session as booked ──
+        // Mark session as booked
         await supabase
             .from('booking_sessions')
             .update({ status: 'booked' })
@@ -254,10 +533,13 @@ Deno.serve(async (req: Request) => {
         const durationMs = Date.now() - startMs;
         console.log(`[create-booking] Completed: ${bookingId} / PNR ${result.pnr} in ${durationMs}ms`);
 
-        return jsonResponse({
+        return jsonResponse(corsHeaders, {
             success: true,
             bookingId,
             pnr: result.pnr,
+            status: finalStatus,
+            confirmedPrice: bookingPrice,
+            confirmedCurrency: bookingCurrency,
         });
     } catch (err: any) {
         const durationMs = Date.now() - startMs;
@@ -265,10 +547,9 @@ Deno.serve(async (req: Request) => {
 
         const status =
             err instanceof MystiflyError ? Math.max(err.status, 400) :
-            err instanceof AmadeusError ? Math.max(err.status, 400) :
-            500;
+                500;
 
-        return jsonResponse(
+        return jsonResponse(getCorsHeaders(req),
             { success: false, error: err.message || 'Booking failed' },
             status,
         );
@@ -281,247 +562,367 @@ async function bookWithMystifly(
     flight: SessionFlight,
     passengers: SessionPassenger[],
     contact: SessionContact,
+    provider: 'mystifly' | 'duffel' | 'mystifly_v2',
+    onRawData?: (raw: any) => void,
 ): Promise<ProviderBookingResult> {
-    const fareSourceCode = flight.traceId;
+    // Route strictly by provider — FareSourceCode must never cross API versions
+    const isV2Provider = provider === 'mystifly_v2';
+    console.log(`[create-booking] Mystifly routing: provider=${provider} → ${isV2Provider ? 'V2' : 'V1'} revalidate+book`);
+
+    let fareSourceCode = flight.traceId;
+    let conversationId: string | undefined = undefined;
+    let sessionId: string | undefined = undefined;
+
+    // ── Extract tunneled IDs (FareSourceCode|ConversationId|SessionId) ──
+    if (fareSourceCode?.includes('|')) {
+        const parts = fareSourceCode.split('|');
+        fareSourceCode = parts[0];
+        conversationId = parts[1];
+        sessionId = parts[2];
+        console.log('[create-booking] Extracted tunneled IDs:', { conversationId, hasSessionId: !!sessionId });
+    }
+
     if (!fareSourceCode) {
         throw new Error('Flight traceId (fareSourceCode) is missing for Mystifly booking');
     }
 
+    // ── STEP: Revalidate fare before booking ── version-paired, no fallback ──
+    const revalidateFn = isV2Provider ? revalidateFareV2 : revalidateFare;
+    console.log(`[create-booking] Revalidating with ${isV2Provider ? 'V2' : 'V1'} function...`);
+
+    let revalResult: any = null;
+    let revalidationSkipped = false;
+
+    try {
+        revalResult = await revalidateFn(fareSourceCode, sessionId, conversationId);
+    } catch (revalErr: any) {
+        const isParse = revalErr?.type === 'PARSE' || /invalid json|empty response/i.test(revalErr?.message ?? '');
+        if (isV2Provider && isParse) {
+            // V2 revalidation endpoint may not exist — skip and proceed to booking.
+            // The booking API itself will validate the fare.
+            console.warn('[create-booking] V2 revalidation returned empty — skipping revalidation, proceeding to book');
+            revalidationSkipped = true;
+        } else {
+            throw revalErr;
+        }
+    }
+
+    let revalidatedPrice: number | undefined;
+    let revalidatedCurrency: string | undefined;
+
+    if (!revalidationSkipped) {
+        if (!revalResult.Success) {
+            console.error('[create-booking] Mystifly Revalidation FAILED:', JSON.stringify(revalResult));
+            const msg = revalResult.Message ?? '';
+            const isUnavailable = /not available|not found|expired/i.test(msg);
+            throw new Error(isUnavailable ? 'Flight is no longer available' : `Fare revalidation failed: ${msg}`);
+        }
+
+        // Use updated FareSourceCode if revalidation returned a new one
+        const revalData = revalResult.Data ?? {};
+        const revalFareInfo = revalData.FareItinerary?.AirItineraryFareInfo ?? revalData;
+        if (revalFareInfo.FareSourceCode || revalData.FareSourceCode) {
+            fareSourceCode = revalFareInfo.FareSourceCode ?? revalData.FareSourceCode ?? fareSourceCode!;
+            console.log('[create-booking] Updated FareSourceCode from revalidation:', fareSourceCode!.slice(0, 50) + '...');
+        }
+
+        // ── Support V2 Summarized vs V1 Nested ──
+        const isV2 = revalData.FlightFaresList !== undefined;
+        console.log('[create-booking] Revalidation structure:', isV2 ? 'Summarized (V2)' : (revalData.PricedItineraries ? 'List (V1)' : 'Legacy (V1)'));
+
+        if (isV2 && revalData.FlightFaresList) {
+            // V2 Summarized Path
+            const fare = revalData.FlightFaresList[0];
+            if (fare) {
+                let total = 0;
+                const passengerFares: any[] = fare.PassengerFare ?? [];
+                for (const pf of passengerFares) {
+                    total += (pf.TotalFare || 0) * (pf.Quantity || 1);
+                    revalidatedCurrency = pf.Currency;
+                }
+                revalidatedPrice = total;
+            }
+        } else if (revalData.PricedItineraries) {
+            // V1 List Path (Standard ASHR 1.0 Revalidate)
+            const pricedItin = revalData.PricedItineraries[0];
+            if (pricedItin) {
+                const pricingInfo = pricedItin.AirItineraryPricingInfo;
+                const itinFare = pricingInfo?.ItinTotalFare;
+                if (itinFare) {
+                    const amount = itinFare.TotalFare?.Amount ?? itinFare.TotalFare?.Value;
+                    revalidatedPrice = amount ? Number(amount) : undefined;
+                    revalidatedCurrency = itinFare.TotalFare?.CurrencyCode ?? itinFare.TotalFare?.Currency;
+                }
+                // CRITICAL: Update FareSourceCode for Booking!
+                const newCode = pricingInfo?.FareSourceCode || pricedItin.FareSourceCode;
+                if (newCode) {
+                    fareSourceCode = newCode;
+                    console.log('[create-booking] Refreshed FareSourceCode from PricedItineraries:', fareSourceCode!.slice(0, 50) + '...');
+                }
+            }
+        } else {
+            // V1 Nested Path (Legacy fallback)
+            const itin = revalData.FareItinerary ?? revalData;
+            const itinFare = itin.AirItineraryFareInfo?.ItinTotalFare ?? itin.ItinTotalFare;
+
+            if (itinFare) {
+                const amount = itinFare.TotalFare?.Amount ?? itinFare.TotalFare?.Value;
+                revalidatedPrice = amount ? Number(amount) : undefined;
+                revalidatedCurrency = itinFare.TotalFare?.CurrencyCode ?? itinFare.TotalFare?.Currency;
+
+                const newCode = itin.FareSourceCode || (itin.AirItineraryFareInfo as any)?.FareSourceCode;
+                if (newCode) {
+                    fareSourceCode = newCode;
+                    console.log('[create-booking] Refreshed FareSourceCode from FareItinerary:', fareSourceCode!.slice(0, 50) + '...');
+                }
+            } else {
+                console.warn('[create-booking] V1 Revalidation structure unexpected. Keys:', Object.keys(itin));
+            }
+        }
+    }
+
+    console.log('[create-booking] Revalidation parsed. Price:', revalidatedPrice, revalidatedCurrency, revalidationSkipped ? '(skipped)' : '');
+
     const isDemo = (Deno.env.get('MYSTIFLY_BASE_URL') ?? '').includes('demo');
 
-    // Build Mystifly-format travelers
-    const airTravelers = passengers.map((pax, idx) => {
-        const traveler: Record<string, any> = {
-            PassengerType: pax.type,
+    // Build Mystifly-format travelers (ASHR 1.0 compliant)
+    // Build Mystifly-format travelers (ASHR 1.0 compliant)
+    const airTravelers = passengers.map((pax: any) => {
+        const birthDate = normalizeDate(pax.birthDate);
+        const passportExpiry = pax.passportExpiry ? normalizeDate(pax.passportExpiry) : '2030-01-01';
+
+        // ASHR 1.0 requires specific codes: ADT, CHD, INF
+        let paxType = 'ADT';
+        const typeStr = (pax.type || '').toLowerCase();
+        if (typeStr.includes('child') || typeStr === 'chd') paxType = 'CHD';
+        if (typeStr.includes('infant') || typeStr === 'inf') paxType = 'INF';
+
+        return {
+            PassengerType: paxType,
             Gender: pax.gender === 'M' || pax.gender === 'male' ? 'M' : 'F',
             PassengerName: {
-                PassengerTitle: GENDER_TO_TITLE[pax.gender] ?? 'Mr',
+                PassengerTitle: (GENDER_TO_TITLE[pax.gender] ?? 'Mr').toUpperCase(),
                 PassengerFirstName: pax.firstName,
                 PassengerLastName: pax.lastName,
             },
-            DateOfBirth: pax.birthDate.includes('T') ? pax.birthDate : `${pax.birthDate}T00:00:00`,
-            Nationality: 'US',
-            ...(idx === 0 ? {
-                PhoneNumber: contact.phone,
-                Email: contact.email,
-                PostCode: '',
-            } : {}),
+            DateOfBirth: `${birthDate}T00:00:00`,
+            // ASHR 1.0 (v1) often expects flat passport fields
+            PassportNumber: pax.passport || 'NOSPPT',
+            ExpiryDate: `${passportExpiry}T00:00:00`,
+            Country: pax.nationality || contact.country || 'KR',
+            Nationality: pax.nationality || contact.country || 'KR',
+            PassengerNationality: pax.nationality || contact.country || 'KR',
         };
-
-        if (pax.passport) {
-            traveler.PassportNumber = pax.passport;
-        }
-
-        return traveler;
     });
 
     const mystiflyBody = {
         FareSourceCode: fareSourceCode,
         TravelerInfo: {
             AirTravelers: airTravelers,
-            CountryCode: 'US',
-            AreaCode: '',
+            CountryCode: contact.country || passengers[0]?.nationality || 'KR',
+            AreaCode: contact.countryCode || '',
             PhoneNumber: contact.phone,
             Email: contact.email,
+            PostCode: contact.postalCode || '',
         },
-        Target: isDemo ? 'Test' : 'Production',
     };
 
-    const raw = await bookFlight(mystiflyBody);
+    console.log('[create-booking] EXTREME LOG - FareSourceCode Metadata:', {
+        length: (fareSourceCode as string).length,
+        prefix: (fareSourceCode as string).slice(0, 10),
+        isV2Style: (fareSourceCode as string).length < 200 && !(fareSourceCode as string).includes('+') && !(fareSourceCode as string).includes('/')
+    });
+
+    console.log('[create-booking] EXTREME LOG - Mystifly Body Keys:', Object.keys(mystiflyBody));
+
+    // Log a snippet of the traveler to verify names/codes
+    const firstPax = mystiflyBody.TravelerInfo?.AirTravelers?.[0];
+    if (firstPax) {
+        console.log('[create-booking] EXTREME LOG - First Traveler:', JSON.stringify({
+            ...firstPax,
+            PassengerFirstName: firstPax.PassengerName?.PassengerFirstName,
+            PassengerLastName: firstPax.PassengerName?.PassengerLastName
+        }));
+    }
+
+
+    // ── STEP: Book — version-paired, no cross-version retry ──
+    const bookFn = isV2Provider ? bookFlightV2 : bookFlight;
+    console.log(`[create-booking] Booking with ${isV2Provider ? 'V2' : 'V1'} function. FareSourceCode[:20]: ${fareSourceCode?.slice(0, 20)}`);
+    const raw = await bookFn(mystiflyBody, sessionId, conversationId);
+
 
     if (!raw.Success) {
+        console.error('[create-booking] Mystifly Booking FAILED:', JSON.stringify(raw));
         throw new Error(raw.Message ?? 'Mystifly booking failed');
     }
 
     const data = raw.Data ?? {};
     const providerStatus = String(data.Status ?? 'confirmed').toLowerCase();
 
+    // Invoke the callback with the raw response data so the caller can extract
+    // TicketStatus, TimeLimit, etc. without re-parsing the whole response
+    if (onRawData) onRawData(data);
+
     let ticketNumbers: string[] = [];
     if (providerStatus === 'ticketed' || data.TktNumbers || data.TicketInfo || data.TravelItinerary?.TicketInfo) {
         ticketNumbers = extractTicketNumbers(data);
     }
+
     return {
         pnr: data.UniqueID ?? '',
         providerStatus: ticketNumbers.length > 0 ? 'ticketed' : providerStatus,
-        rawPrice: parseFloat(String(data.TotalFare ?? data.TotalPrice ?? '0')) || undefined,
-        rawCurrency: data.Currency ? String(data.Currency) : undefined,
+        rawPrice: revalidatedPrice ?? (parseFloat(String(data.TotalFare ?? data.TotalPrice ?? '0')) || undefined),
+        rawCurrency: revalidatedCurrency ?? (data.Currency ? String(data.Currency) : undefined),
         ticketNumbers: ticketNumbers.length > 0 ? ticketNumbers : undefined,
     };
 }
 
-// ─── Amadeus Booking ────────────────────────────────────────────────
+// ─── Duffel Booking ──────────────────────────────────────────────────
 
-async function bookWithAmadeus(
+async function bookWithDuffel(
     flight: SessionFlight,
     passengers: SessionPassenger[],
     contact: SessionContact,
 ): Promise<ProviderBookingResult> {
-    // Step 1: Build or use raw offer
-    const baseOffer = (flight as any).rawOffer ?? buildAmadeusFlightOffer(flight, passengers);
-
-    // Step 2: Confirm pricing via Amadeus Flight Offers Price API
-    // This is REQUIRED — prices change between search and booking
-    console.log('[create-booking] Confirming price with Amadeus...');
-    const priceResponse: any = await amadeusRequest('/v1/shopping/flight-offers/pricing', {
-        method: 'POST',
-        body: {
-            data: {
-                type: 'flight-offers-pricing',
-                flightOffers: [baseOffer],
-            },
-        },
-    });
-
-    const pricedOffer = priceResponse.data?.flightOffers?.[0];
-    if (!pricedOffer) {
-        throw new Error('Amadeus pricing confirmation failed: no priced offer returned');
+    const rawOffer = flight._rawOffer as any;
+    if (!rawOffer || !rawOffer.id) {
+        throw new Error('Duffel offer missing or expired from session');
     }
 
-    console.log('[create-booking] Confirmed price:', pricedOffer.price?.grandTotal, pricedOffer.price?.currency);
+    const offerId = rawOffer.id;
+    const duffelPassengers = rawOffer.passengers || [];
 
-    // Step 3: Build booking request with the priced offer
-    const phoneNumber = contact.phone.replace(/\D/g, '');
-    const countryCallingCode = contact.countryCode || '82';
-
-    const travelers = passengers.map((pax, idx) => ({
-        id: String(idx + 1),
-        dateOfBirth: pax.birthDate,
-        name: {
-            firstName: pax.firstName.toUpperCase(),
-            lastName: pax.lastName.toUpperCase(),
-        },
-        gender: pax.gender === 'M' || pax.gender === 'male' ? 'MALE' : 'FEMALE',
-        contact: {
-            emailAddress: contact.email,
-            phones: [{
-                deviceType: 'MOBILE',
-                countryCallingCode,
-                number: phoneNumber,
-            }],
-        },
-        documents: [{
-            documentType: 'PASSPORT',
-            birthPlace: contact.city,
-            issuanceLocation: contact.city,
-            issuanceDate: '2020-01-01',
-            number: pax.passport,
-            expiryDate: pax.passportExpiry,
-            issuanceCountry: pax.nationality || 'KR',
-            validityCountry: pax.nationality || 'KR',
-            nationality: pax.nationality || 'KR',
-            holder: true,
-        }],
-    }));
-
-    const body = {
-        data: {
-            type: 'flight-order',
-            flightOffers: [pricedOffer],
-            travelers,
-            contacts: [{
-                addresseeName: {
-                    firstName: passengers[0].firstName.toUpperCase(),
-                    lastName: passengers[0].lastName.toUpperCase(),
-                },
-                purpose: 'STANDARD',
-                emailAddress: contact.email,
-                phones: [{
-                    deviceType: 'MOBILE',
-                    countryCallingCode,
-                    number: phoneNumber,
-                }],
-                address: {
-                    lines: [contact.addressLine || 'N/A'],
-                    postalCode: contact.postalCode || '00000',
-                    cityName: contact.city || 'N/A',
-                    countryCode: contact.country || 'KR',
-                },
-            }],
-        },
-    };
-
-    const raw: any = await amadeusRequest('/v1/booking/flight-orders', {
-        method: 'POST',
-        body,
-    });
-
-    const order = raw.data;
-    if (!order?.id) {
-        throw new Error('Amadeus booking failed: no order ID returned');
+    // Ensure we have matching passengers
+    if (passengers.length > duffelPassengers.length) {
+        throw new Error(`Passenger count mismatch: provided ${passengers.length}, offer requires ${duffelPassengers.length}`);
     }
 
-    // Extract PNR from associatedRecords
-    const pnr = order.associatedRecords?.[0]?.reference ?? order.id;
+    // Duffel strictly validates E.164 phone numbers (e.g. +821012345678)
+    const countryCallingCode = contact.countryCode ? contact.countryCode.replace(/\D/g, '') : '82';
+    // Remove all non-digits, and also strip any leading '0' which is common but invalid in E.164
+    const phoneNumber = contact.phone.replace(/\D/g, '').replace(/^0+/, '');
 
-    return {
-        pnr,
-        providerStatus: 'confirmed',
-        rawPrice: parseFloat(order.flightOffers?.[0]?.price?.grandTotal ?? '0') || undefined,
-        rawCurrency: order.flightOffers?.[0]?.price?.currency ?? undefined,
-    };
-}
+    const formattedPhone = `+${countryCallingCode}${phoneNumber}`;
 
-/**
- * Build a minimal Amadeus flight-offer object from our normalized flight data.
- * Used when rawOffer is not available in the session.
- */
-function buildAmadeusFlightOffer(
-    flight: SessionFlight,
-    passengers: SessionPassenger[],
-): Record<string, any> {
-    const cabinMap: Record<string, string> = {
-        economy: 'ECONOMY',
-        premium_economy: 'PREMIUM_ECONOMY',
-        business: 'BUSINESS',
-        first: 'FIRST',
-    };
+    const orderPassengers = passengers.map((pax, idx) => {
+        const duffelPax = duffelPassengers[idx];
+        const birthDate = normalizeDate(pax.birthDate);
 
-    const TRAVELER_TYPE_MAP: Record<string, string> = {
-        ADT: 'ADULT',
-        CHD: 'HELD_INFANT',  // Amadeus: child = HELD_INFANT for under 2, or CHILD
-        INF: 'SEATED_INFANT',
-    };
+        return {
+            id: duffelPax.id,
+            title: GENDER_TO_TITLE[pax.gender]?.toLowerCase() || 'mr',
+            given_name: pax.firstName.toUpperCase(),
+            family_name: pax.lastName.toUpperCase(),
+            born_on: birthDate,
+            email: contact.email,
+            phone_number: formattedPhone,
+            gender: pax.gender === 'M' || pax.gender === 'male' ? 'm' : 'f',
+        };
+    });
 
-    const mainAirline = flight.validatingAirline ?? flight.segments?.[0]?.airline ?? '';
+    try {
+        console.log('[create-booking] Creating Duffel Order for offer:', offerId);
 
-    const fareDetailsBySegment = (flight.segments ?? []).map((seg, idx) => ({
-        segmentId: String(idx + 1),
-        cabin: cabinMap[seg.cabinClass ?? 'economy'] ?? 'ECONOMY',
-        class: 'Y',
-    }));
+        const duffelPayload = {
+            type: 'instant',
+            selected_offers: [offerId],
+            passengers: orderPassengers,
+            payments: [
+                {
+                    type: 'balance',
+                    amount: rawOffer.total_amount,
+                    currency: rawOffer.total_currency,
+                }
+            ],
+        };
 
-    return {
-        type: 'flight-offer',
-        id: flight.resultIndex ?? '1',
-        source: 'GDS',
-        validatingAirlineCodes: [mainAirline],
-        itineraries: [{
-            segments: (flight.segments ?? []).map((seg, idx) => ({
-                departure: { iataCode: seg.origin, at: seg.departureTime },
-                arrival: { iataCode: seg.destination, at: seg.arrivalTime },
-                carrierCode: seg.airline,
-                number: seg.flightNumber.replace(seg.airline, ''),
-                id: String(idx + 1),
-                numberOfStops: 0,
-            })),
-        }],
-        price: {
-            currency: flight.currency ?? 'USD',
-            total: String(flight.price ?? 0),
-            grandTotal: String(flight.price ?? 0),
-        },
-        travelerPricings: passengers.map((pax, idx) => ({
-            travelerId: String(idx + 1),
-            fareOption: 'STANDARD',
-            travelerType: TRAVELER_TYPE_MAP[pax.type] ?? 'ADULT',
-            fareDetailsBySegment,
-        })),
-    };
+        // Retry once on Duffel 500 (transient server errors)
+        let orderResponse: any;
+        try {
+            orderResponse = await createDuffelOrder(duffelPayload);
+        } catch (firstErr: any) {
+            if (firstErr.status === 500) {
+                console.warn('[create-booking] Duffel 500, retrying once after 1s...');
+                await new Promise(r => setTimeout(r, 1000));
+                orderResponse = await createDuffelOrder(duffelPayload);
+            } else {
+                throw firstErr;
+            }
+        }
+
+        const order = orderResponse.data;
+        if (!order || !order.id) {
+            throw new Error('Duffel booking failed: no order ID returned');
+        }
+
+        const airlinePnr = order.booking_reference ?? order.id;
+
+        // Extract Duffel tickets
+        const documents = order.documents || [];
+        const ticketNumbers = documents
+            .filter((doc: any) => doc.type === 'electronic_ticket')
+            .map((doc: any) => doc.unique_identifier);
+
+        const isTicketed = ticketNumbers.length > 0 || !!order.booking_reference;
+
+        return {
+            pnr: airlinePnr,
+            providerOrderId: order.id,
+            providerStatus: isTicketed ? 'ticketed' : 'confirmed',
+            rawPrice: parseFloat(order.total_amount ?? '0') || undefined,
+            rawCurrency: order.total_currency ?? undefined,
+            ticketNumbers: ticketNumbers.length > 0 ? ticketNumbers : undefined,
+        };
+    } catch (e: any) {
+        console.error('[create-booking] Duffel Order Error:', e);
+        throw e;
+    }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+/**
+ * Shared helper: inserts flight_segments and passengers rows for a booking.
+ * Called by both the Mystifly and Duffel paths.
+ */
+async function insertSegmentsAndPassengers(
+    supabase: any,
+    bookingId: string,
+    bs: BookingSession,
+    result: ProviderBookingResult,
+): Promise<void> {
+    const segments = (bs.flight.segments ?? []).map((seg) => ({
+        booking_id: bookingId,
+        airline: seg.airline,
+        flight_number: seg.flightNumber,
+        origin: seg.origin,
+        destination: seg.destination,
+        departure: seg.departureTime,
+        arrival: seg.arrivalTime,
+    }));
+
+    if (segments.length > 0) {
+        const { error: segError } = await supabase.from('flight_segments').insert(segments);
+        if (segError) console.error('[create-booking] Segments insert error:', segError);
+    }
+
+    const passengers = bs.passengers.map((pax: SessionPassenger, idx: number) => ({
+        booking_id: bookingId,
+        first_name: pax.firstName,
+        last_name: pax.lastName,
+        type: pax.type,
+        passport: pax.passport ?? null,
+        ticket_number: result.ticketNumbers?.[idx] ?? null,
+    }));
+
+    if (passengers.length > 0) {
+        const { error: paxError } = await supabase.from('passengers').insert(passengers);
+        if (paxError) console.error('[create-booking] Passengers insert error:', paxError);
+    }
+}
+
+function jsonResponse(corsHeaders: Record<string, string>, body: Record<string, unknown>, status = 200): Response {
     return new Response(
         JSON.stringify(body),
         { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

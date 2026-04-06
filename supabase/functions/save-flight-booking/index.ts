@@ -4,7 +4,7 @@
  * POST /functions/v1/save-flight-booking
  *
  * Persists a flight booking to the unified_bookings table after a
- * successful provider booking (Amadeus or Mystifly).
+ * successful provider booking (Mystifly or Duffel).
  *
  * Uses the Supabase service role key for direct database writes
  * (bypasses RLS — the function validates userId).
@@ -16,6 +16,7 @@
  *   }
  */
 
+import { getCorsHeaders } from '../_shared/cors.ts';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -23,12 +24,10 @@ declare const Deno: any;
 
 import type { SaveBookingRequest, SaveBookingResponse } from '../_shared/types.ts';
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 Deno.serve(async (req: Request) => {
+    const corsHeaders = getCorsHeaders(req);
+
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
@@ -40,16 +39,16 @@ Deno.serve(async (req: Request) => {
         const body: SaveBookingRequest = JSON.parse(await req.text());
 
         if (!body.userId) {
-            return jsonResponse({ success: false, error: 'userId is required' }, 400);
+            return jsonResponse(corsHeaders, { success: false, error: 'userId is required' }, 400);
         }
         if (!body.provider) {
-            return jsonResponse({ success: false, error: 'provider is required' }, 400);
+            return jsonResponse(corsHeaders, { success: false, error: 'provider is required' }, 400);
         }
         if (!body.externalId) {
-            return jsonResponse({ success: false, error: 'externalId is required' }, 400);
+            return jsonResponse(corsHeaders, { success: false, error: 'externalId is required' }, 400);
         }
         if (body.totalPrice == null || body.totalPrice < 0) {
-            return jsonResponse({ success: false, error: 'totalPrice must be a non-negative number' }, 400);
+            return jsonResponse(corsHeaders, { success: false, error: 'totalPrice must be a non-negative number' }, 400);
         }
 
         console.log('[save-flight-booking] Saving:', {
@@ -81,7 +80,7 @@ Deno.serve(async (req: Request) => {
 
         if (existing) {
             console.log(`[save-flight-booking] Duplicate detected, returning existing: ${existing.id}`);
-            return jsonResponse({
+            return jsonResponse(corsHeaders, {
                 success: true,
                 bookingId: existing.id,
             } satisfies SaveBookingResponse);
@@ -116,7 +115,7 @@ Deno.serve(async (req: Request) => {
 
         console.log(`[save-flight-booking] Saved: ${bookingId} in ${Date.now() - startMs}ms`);
 
-        return jsonResponse({
+        return jsonResponse(corsHeaders, {
             success: true,
             bookingId,
         } satisfies SaveBookingResponse);
@@ -124,16 +123,16 @@ Deno.serve(async (req: Request) => {
         const durationMs = Date.now() - startMs;
         console.error('[save-flight-booking] Error:', err.message);
 
-        return jsonResponse(
+        return jsonResponse(corsHeaders,
             { success: false, bookingId: '', error: err.message || 'Failed to save booking' },
             500,
         );
     }
 });
 
-function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+function jsonResponse(headers: Record<string, string>, body: Record<string, unknown>, status = 200): Response {
     return new Response(
         JSON.stringify(body),
-        { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status, headers: { ...headers, 'Content-Type': 'application/json' } },
     );
 }

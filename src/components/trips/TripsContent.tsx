@@ -4,6 +4,8 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Plane, Luggage, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect } from 'react';
+import { useUser, useAuthLoading } from '@/stores/authStore';
 import type { BookingRecord, FlightBookingRecord } from '@/services/booking.service';
 import BookingCard from './BookingCard';
 import FlightBookingCard from './FlightBookingCard';
@@ -25,8 +27,17 @@ function isFlight(b: MixedBooking): b is FlightBookingRecord {
 export function TripsContent({ initialData }: TripsContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const user = useUser();
+  const isLoading = useAuthLoading();
 
-  const rawTab = searchParams.get('tab');
+  // Redirect if logged out while on page
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/');
+    }
+  }, [user, isLoading, router]);
+
+  const rawTab = searchParams?.get('tab');
   const activeTab: TabValue = VALID_TABS.includes(rawTab as TabValue) ? (rawTab as TabValue) : 'upcoming';
 
   const [visibleCount, setVisibleCount] = useState(10);
@@ -45,7 +56,7 @@ export function TripsContent({ initialData }: TripsContentProps) {
       : initialData.bookings;
 
   const handleTabChange = useCallback((tab: TabValue) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() || '');
     if (tab === 'upcoming') {
       params.delete('tab');
     } else {
@@ -74,6 +85,8 @@ export function TripsContent({ initialData }: TripsContentProps) {
     router.refresh();
   }, [router]);
 
+  if (!user) return null;
+
   return (
     <main className="min-h-screen pt-4 pb-16 px-3 sm:pt-6 sm:pb-20 sm:px-4 md:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto w-full">
@@ -98,9 +111,9 @@ export function TripsContent({ initialData }: TripsContentProps) {
               }`}
           >
             <span>Upcoming</span>
-            {upcomingBookings.length > 0 && (
+            {counts.upcoming > 0 && (
               <span className="px-1.5 sm:px-2 py-0.5 text-[clamp(0.5625rem,1.5vw,0.75rem)] bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
-                {upcomingBookings.length}
+                {counts.upcoming}
               </span>
             )}
             {activeTab === 'upcoming' && (
@@ -158,12 +171,19 @@ export function TripsContent({ initialData }: TripsContentProps) {
         ) : (
           <div className="space-y-2 sm:space-y-2.5 md:space-y-3">
             {displayedBookings.slice(0, visibleCount).map((booking, index) => (
-              <BookingCard
-                key={booking.id}
-                booking={booking}
-                onBookingUpdated={refetch}
-                index={index}
-              />
+              isFlight(booking) ? (
+                <FlightBookingCard
+                  key={booking.id}
+                  booking={booking}
+                />
+              ) : (
+                <BookingCard
+                  key={booking.id}
+                  booking={booking}
+                  onBookingUpdated={refetch}
+                  index={index}
+                />
+              )
             ))}
             {visibleCount < displayedBookings.length && (
               <div className="flex justify-center pt-3 sm:pt-4 md:pt-6">

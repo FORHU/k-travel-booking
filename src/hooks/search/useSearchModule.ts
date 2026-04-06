@@ -25,7 +25,7 @@ export interface UseSearchModuleReturn {
     isSearching: boolean;
 
     // Derived
-    activeDropdown: 'destination' | 'dates' | 'travelers' | 'flight-origin' | 'flight-destination' | 'flight-dates' | 'flight-dates-depart' | 'flight-dates-return' | 'flight-passengers' | null;
+    activeDropdown: string | null;
 
     // Actions
     setDestinationQuery: (query: string) => void;
@@ -36,7 +36,7 @@ export interface UseSearchModuleReturn {
     setAdults: (count: number) => void;
     setChildren: (count: number) => void;
     setRooms: (count: number) => void;
-    setActiveDropdown: (dropdown: 'destination' | 'dates' | 'travelers' | 'flight-origin' | 'flight-destination' | 'flight-dates' | 'flight-dates-depart' | 'flight-dates-return' | 'flight-passengers' | null) => void;
+    setActiveDropdown: (dropdown: string | null) => void;
 
     // Search Action
     handleSearch: () => void;
@@ -86,14 +86,14 @@ export const useSearchModule = (): UseSearchModuleReturn => {
         // Reset loading state when navigation completes
         setIsSearching(false);
 
-        const destParam = searchParams.get('destination');
-        const checkInParam = searchParams.get('checkIn');
-        const checkOutParam = searchParams.get('checkOut');
-        const adultsParam = searchParams.get('adults');
-        const childrenParam = searchParams.get('children');
-        const roomsParam = searchParams.get('rooms');
-        const countryCodeParam = searchParams.get('countryCode');
-        const placeIdParam = searchParams.get('placeId');
+        const destParam = searchParams?.get('destination');
+        const checkInParam = searchParams?.get('checkIn');
+        const checkOutParam = searchParams?.get('checkOut');
+        const adultsParam = searchParams?.get('adults');
+        const childrenParam = searchParams?.get('children');
+        const roomsParam = searchParams?.get('rooms');
+        const countryCodeParam = searchParams?.get('countryCode');
+        const placeIdParam = searchParams?.get('placeId');
 
         if (destParam) {
             setDestinationQuery(destParam);
@@ -213,8 +213,8 @@ export const useSearchModule = (): UseSearchModuleReturn => {
         }
 
         // Currency: based on user's locale (from store), not the destination
-        // A Filipino user searching Korea still sees PHP prices
-        params.set('currency', state.userCurrency || 'PHP');
+        // A Korean user searching abroad still sees KRW prices
+        params.set('currency', state.userCurrency || 'KRW');
 
         // Dates
         params.set('checkIn', state.dates.checkIn!.toISOString());

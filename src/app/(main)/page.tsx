@@ -1,64 +1,48 @@
-import React from 'react';
+export const revalidate = 1800; // regenerate every 30 minutes
+
+import { Suspense } from "react";
+import { Hero } from "@/components/landing/hero";
+import { RecentlyViewed, YourRecentSearches } from "@/components/landing/sections";
+import { AppBanner } from "@/components/landing/layout";
 import {
-  Hero,
-  RecentlyViewed,
-  DealsSection,
-  YourRecentSearches,
-  LastMinuteWeekendDeals,
-  StaysForEveryStyle,
-  ExploreVacationPackages,
-  ExploreUniqueStays,
-  AppBanner,
-  AIFeaturesSection,
-  PopularDestinations,
-  HowItWorksSection,
-  TestimonialsSection,
-  NewsletterSection,
-} from '@/components/landing';
+  SectionSkeleton,
+  DealsSectionStream,
+  StaysForEveryStyleStream,
+  ExploreVacationPackagesStream,
+  ExploreUniqueStaysStream,
+  LastMinuteWeekendDealsStream,
+} from "./_sections";
 
 export default function Home() {
   return (
-    <main className="overflow-x-clip">
-      {/* Hero — cinematic with aurora background, floating cards, trust strip */}
+    <main className="flex min-h-screen flex-col items-center justify-between pb-20">
       <Hero />
 
-      {/* Recent searches — quick access */}
-      <YourRecentSearches />
+      <div className="w-full space-y-2 sm:space-y-4">
+        <div className="max-w-[1400px] mx-auto w-full">
+          {/* Client-side sections — render immediately */}
+          <YourRecentSearches />
+          <RecentlyViewed />
 
-      {/* AI Features — bento grid showcasing intelligence */}
-      <AIFeaturesSection />
+          {/* Data sections — each streams independently */}
+          <Suspense fallback={<SectionSkeleton />}>
+            <DealsSectionStream />
+          </Suspense>
+          <Suspense fallback={<SectionSkeleton />}>
+            <StaysForEveryStyleStream />
+          </Suspense>
+          <Suspense fallback={<SectionSkeleton />}>
+            <ExploreVacationPackagesStream />
+          </Suspense>
+          <Suspense fallback={<SectionSkeleton />}>
+            <ExploreUniqueStaysStream />
+          </Suspense>
+          <Suspense fallback={<SectionSkeleton />}>
+            <LastMinuteWeekendDealsStream />
+          </Suspense>
+        </div>
+      </div>
 
-      {/* Popular Destinations — stunning photo grid */}
-      <PopularDestinations />
-
-      {/* Deals & Offers */}
-      <DealsSection />
-
-      {/* How It Works — 3-step journey */}
-      <HowItWorksSection />
-
-      {/* Curated Collections */}
-      <StaysForEveryStyle />
-
-      {/* Continue Your Search */}
-      <RecentlyViewed />
-
-      {/* All-Inclusive Bundles */}
-      <ExploreVacationPackages />
-
-      {/* Extraordinary Escapes */}
-      <ExploreUniqueStays />
-
-      {/* Testimonials — social proof */}
-      <TestimonialsSection />
-
-      {/* Flash Getaways */}
-      <LastMinuteWeekendDeals />
-
-      {/* Newsletter CTA */}
-      <NewsletterSection />
-
-      {/* App Download Banner */}
       <AppBanner />
     </main>
   );

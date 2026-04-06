@@ -28,11 +28,11 @@ export function AccountContent({ initialUser }: AccountContentProps) {
     const searchParams = useSearchParams();
     const { user: storeUser, logout } = useAuthStore();
 
-    const rawSection = searchParams.get('section');
+    const rawSection = searchParams?.get('section');
     const activeSection = VALID_SECTIONS.includes(rawSection as any) ? rawSection! : 'profile';
 
     const setActiveSection = useCallback((section: string) => {
-        const params = new URLSearchParams(searchParams.toString());
+        const params = new URLSearchParams(searchParams?.toString() || '');
         if (section === 'profile') {
             params.delete('section');
         } else {
@@ -58,8 +58,8 @@ export function AccountContent({ initialUser }: AccountContentProps) {
         { id: 'help', icon: <HelpCircle size={20} />, title: 'Help and feedback', description: 'Get customer support' },
     ], []);
 
-    const handleSignOut = () => {
-        logout();
+    const handleSignOut = async () => {
+        await logout();
         router.push('/');
     };
 

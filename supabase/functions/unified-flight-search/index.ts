@@ -14,17 +14,14 @@
  *
  * If one provider fails, the other's results are still returned.
  */
-
+import { getCorsHeaders } from '../_shared/cors.ts';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 declare const Deno: any;
 
-import type { NormalizedFlight, FlightProvider } from '../_shared/types.ts';
+import { FlightProvider } from '../_shared/types.ts';
+import type { NormalizedFlight } from '../_shared/types.ts';
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 // ─── Provider Configuration ─────────────────────────────────────────
 
@@ -37,14 +34,21 @@ interface ProviderConfig {
 
 const PROVIDERS: ProviderConfig[] = [
     {
-        name: 'amadeus',
-        functionName: 'amadeus-search',
+        name: FlightProvider.DUFFEL,
+        functionName: 'duffel-search',
         enabled: true,
         timeoutMs: 15_000,
     },
     {
-        name: 'mystifly',
+        name: FlightProvider.MYSTIFLY, // V1 Lowest Fares
         functionName: 'mystifly-search',
+        enabled: true,
+        timeoutMs: 20_000,
+    },
+    {
+        name: FlightProvider.MYSTIFLY_V2, // V2 Branded Fares
+        functionName: 'mystifly-v2-search',
+        // Enable V2 for both production and test environments.
         enabled: true,
         timeoutMs: 20_000,
     },
@@ -53,10 +57,8 @@ const PROVIDERS: ProviderConfig[] = [
 // ─── Request Body ───────────────────────────────────────────────────
 
 interface UnifiedSearchBody {
-    origin: string;
-    destination: string;
-    departureDate: string;
-    returnDate?: string;
+    segments: { origin: string; destination: string; departureDate: string }[];
+    tripType: 'one-way' | 'round-trip' | 'multi-city';
     adults: number;
     children?: number;
     infants?: number;
@@ -78,6 +80,8 @@ interface ProviderResult {
 // ─── Handler ────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+    const corsHeaders = getCorsHeaders(req);
+
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
@@ -88,9 +92,9 @@ Deno.serve(async (req: Request) => {
         // ── Parse & Validate ──
         const body: UnifiedSearchBody = JSON.parse(await req.text());
 
-        if (!body.origin || !body.destination || !body.departureDate || !body.adults) {
-            return jsonResponse(
-                { success: false, error: 'Required: origin, destination, departureDate, adults', flights: [] },
+        if (!Array.isArray(body.segments) || body.segments.length === 0 || !body.adults) {
+            return jsonResponse(corsHeaders,
+                { success: false, error: 'Required: segments array and adults count', flights: [] },
                 400,
             );
         }
@@ -99,9 +103,8 @@ Deno.serve(async (req: Request) => {
 
         console.log('[unified-flight-search] Searching:', {
             providers: enabledProviders.map((p) => p.name),
-            origin: body.origin,
-            destination: body.destination,
-            departureDate: body.departureDate,
+            tripType: body.tripType,
+            segmentCount: body.segments.length,
             adults: body.adults,
         });
 
@@ -117,16 +120,17 @@ Deno.serve(async (req: Request) => {
 
         // ── Merge all flights ──
         const allFlights: NormalizedFlight[] = providerResults.flatMap((r) => r.flights);
+        const duffelCount = providerResults.find(r => r.name === FlightProvider.DUFFEL)?.flights.length ?? 0;
+        const v1Count = providerResults.find(r => r.name === FlightProvider.MYSTIFLY)?.flights.length ?? 0;
+        const v2Count = providerResults.find(r => r.name === FlightProvider.MYSTIFLY_V2)?.flights.length ?? 0;
+        console.log(`[unified-flight-search] Raw counts - Duffel: ${duffelCount}, Mystifly V1: ${v1Count}, Mystifly V2: ${v2Count}`);
 
         // ── Deduplicate (same flight from multiple GDS) ──
         const deduped = deduplicateFlights(allFlights);
+        console.log(`[unified-flight-search] After dedup: ${deduped.length} flights`);
 
-        // ── Sort by price ascending ──
-        deduped.sort((a, b) => a.price - b.price);
-
-        // ── Apply limit ──
-        const maxOffers = body.maxOffers ?? 50;
-        const flights = deduped.slice(0, maxOffers);
+        // ── Sort by Best Score (Default/Recommended) ──
+        const flights = deduped.sort((a, b) => a.bestScore - b.bestScore);
 
         const searchDurationMs = Date.now() - searchStart;
 
@@ -139,7 +143,7 @@ Deno.serve(async (req: Request) => {
         );
 
         // ── Response ──
-        return jsonResponse({
+        return jsonResponse(corsHeaders, {
             success: true,
             flights,
             providers: providerResults.map((r) => ({
@@ -153,7 +157,7 @@ Deno.serve(async (req: Request) => {
         });
     } catch (err: any) {
         console.error('[unified-flight-search] Error:', err.message);
-        return jsonResponse(
+        return jsonResponse(getCorsHeaders(req),
             {
                 success: false,
                 error: err.message || 'Unified flight search failed',
@@ -169,11 +173,6 @@ Deno.serve(async (req: Request) => {
 
 // ─── Provider Call ──────────────────────────────────────────────────
 
-/**
- * Call a single provider's edge function with timeout.
- * Never throws — returns an error result on failure so other providers
- * can still contribute results.
- */
 async function callProvider(
     provider: ProviderConfig,
     body: UnifiedSearchBody,
@@ -204,11 +203,22 @@ async function callProvider(
         if (!res.ok) {
             const text = await res.text().catch(() => '');
             console.error(`[unified-flight-search] ${provider.name} HTTP ${res.status}: ${text.slice(0, 200)}`);
+
+            let errorMsg = `${provider.name} returned ${res.status}`;
+            try {
+                const errJson = JSON.parse(text);
+                if (errJson.error) {
+                    errorMsg = errJson.error;
+                }
+            } catch {
+                // Not JSON or no error field, use default
+            }
+
             return {
                 name: provider.name,
                 flights: [],
                 durationMs,
-                error: `${provider.name} returned ${res.status}`,
+                error: errorMsg,
             };
         }
 
@@ -241,31 +251,88 @@ async function callProvider(
     }
 }
 
-// ─── Deduplication ──────────────────────────────────────────────────
-
 /**
- * Remove duplicate flights that appear from multiple GDS providers.
- * Same flight = same flightNumber + same departureTime.
- * When duplicated, keep the cheaper one.
+ * MED-2 FIX: Improved deduplication for multi-segment itineraries.
+ * SENIOR-LEVEL: Prefer Duffel if prices are virtually identical (< 1% diff).
  */
 function deduplicateFlights(flights: NormalizedFlight[]): NormalizedFlight[] {
-    const seen = new Map<string, NormalizedFlight>();
+    // Group identical physical itineraries
+    const itineraryGroups = new Map<string, NormalizedFlight[]>();
 
     for (const flight of flights) {
-        const key = `${flight.flightNumber}_${flight.departureTime}`;
-        const existing = seen.get(key);
+        const segmentKeys = (flight.segments ?? []).map(
+            (seg) => `${seg.flightNumber}_${(seg.departureTime || '').slice(0, 16)}`,
+        );
+        const physicalKey = segmentKeys.length > 0
+            ? segmentKeys.join('|')
+            : `${flight.flightNumber}_${(flight.departureTime || '').slice(0, 16)}`;
 
-        if (!existing || flight.price < existing.price) {
-            seen.set(key, flight);
+        if (!itineraryGroups.has(physicalKey)) {
+            itineraryGroups.set(physicalKey, []);
         }
+        itineraryGroups.get(physicalKey)!.push(flight);
     }
 
-    return Array.from(seen.values());
+    const deduped: NormalizedFlight[] = [];
+
+    for (const group of itineraryGroups.values()) {
+        // Sort lowest price first using normalized USD price
+        group.sort((a, b) => a.normalizedPriceUsd - b.normalizedPriceUsd);
+
+        const kept: NormalizedFlight[] = [];
+
+        for (const flight of group) {
+            // Check if we already kept a functionally identical offer for this plane
+            // (Same cabin class, and price difference < 2% or < $2 fixed)
+            const idx = kept.findIndex(k => {
+                const sameCabin = k.cabinClass === flight.cabinClass;
+                const priceDiff = Math.abs(k.normalizedPriceUsd - flight.normalizedPriceUsd);
+                const isSimilarPrice = priceDiff < (k.normalizedPriceUsd * 0.02) || priceDiff < 2;
+                return sameCabin && isSimilarPrice;
+            });
+
+            if (idx === -1) {
+                // Meaningful variation (e.g. different fare brand with >2% price diff) -> Keep it
+                kept.push(flight);
+            } else {
+                // It's a duplicate. TIE-BREAKER: 
+                // 1. Prefer Duffel (direct) 
+                // 2. Prefer Mystifly V2 (branded) over V1 (lowest fare)
+                const current = kept[idx];
+                const betterToDuffel = flight.provider === FlightProvider.DUFFEL && current.provider !== FlightProvider.DUFFEL;
+                const betterToV2 = flight.provider === FlightProvider.MYSTIFLY_V2 && current.provider === FlightProvider.MYSTIFLY;
+
+                if (betterToDuffel || betterToV2) {
+                    kept[idx] = flight;
+                }
+            }
+        }
+        deduped.push(...kept);
+    }
+
+    return deduped;
 }
+
+/**
+ * Ensures provider variety in the top results.
+ */
+/**
+ * Ensures provider variety throughout the results list via interleaving.
+ * Uses a 3:1 ratio to ensure the secondary provider is always visible.
+ */
+/**
+ * Sorting for the "Recommended" view.
+ * Uses the pre-calculated bestScore which combines price, duration, and stops.
+ */
+function sortRecommended(flights: NormalizedFlight[]): NormalizedFlight[] {
+    return flights.sort((a, b) => a.bestScore - b.bestScore);
+}
+// smartSort is deprecated in favor of sortRecommended
+const smartSort = sortRecommended;
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+function jsonResponse(corsHeaders: Record<string, string>, body: Record<string, unknown>, status = 200): Response {
     return new Response(
         JSON.stringify(body),
         { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

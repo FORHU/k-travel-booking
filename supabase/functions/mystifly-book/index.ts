@@ -11,6 +11,7 @@
  *   { traceId, provider, passengers, contact }
  */
 
+import { getCorsHeaders } from '../_shared/cors.ts';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 declare const Deno: any;
@@ -22,12 +23,9 @@ import type {
     BookingStatus,
     MystiflyBookResponse,
 } from '../_shared/types.ts';
-import { bookFlight, MystiflyError } from '../_shared/mystiflyClient.ts';
+import { bookFlight, MystiflyError, getMystiflyTarget } from '../_shared/mystiflyClient.ts';
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+
 
 // ─── Mystifly Passenger Type Codes ──────────────────────────────────
 
@@ -47,6 +45,8 @@ const GENDER_MAP: Record<BookingPassenger['title'], string> = {
 // ─── Handler ────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+    const corsHeaders = getCorsHeaders(req);
+
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
@@ -59,19 +59,19 @@ Deno.serve(async (req: Request) => {
 
         // ── Validate ──
         if (!body.traceId) {
-            return jsonResponse(
+            return jsonResponse(corsHeaders,
                 { success: false, error: 'traceId (fareSourceCode) is required' },
                 400,
             );
         }
         if (!body.passengers?.length) {
-            return jsonResponse(
+            return jsonResponse(corsHeaders,
                 { success: false, error: 'At least one passenger is required' },
                 400,
             );
         }
         if (!body.contact?.email || !body.contact?.phone) {
-            return jsonResponse(
+            return jsonResponse(corsHeaders,
                 { success: false, error: 'Contact email and phone are required' },
                 400,
             );
@@ -81,7 +81,7 @@ Deno.serve(async (req: Request) => {
         for (let i = 0; i < body.passengers.length; i++) {
             const pax = body.passengers[i];
             if (!pax.firstName || !pax.lastName || !pax.dateOfBirth) {
-                return jsonResponse(
+                return jsonResponse(corsHeaders,
                     { success: false, error: `Passenger ${i + 1}: firstName, lastName, and dateOfBirth are required` },
                     400,
                 );
@@ -112,7 +112,7 @@ Deno.serve(async (req: Request) => {
             const message = raw.Message ?? 'Booking failed';
             console.error('[mystifly-book] Mystifly booking failed:', message);
 
-            return jsonResponse({
+            return jsonResponse(corsHeaders, {
                 success: false,
                 bookingId: '',
                 pnr: '',
@@ -144,7 +144,7 @@ Deno.serve(async (req: Request) => {
 
         console.log(`[mystifly-book] Booked: ${uniqueId} (${status}) in ${durationMs}ms`);
 
-        return jsonResponse({
+        return jsonResponse(corsHeaders, {
             success: true,
             bookingId: uniqueId,
             pnr: uniqueId,
@@ -160,7 +160,7 @@ Deno.serve(async (req: Request) => {
 
         const status = err instanceof MystiflyError ? Math.max(err.status, 400) : 500;
 
-        return jsonResponse(
+        return jsonResponse(corsHeaders,
             {
                 success: false,
                 bookingId: '',
@@ -227,9 +227,10 @@ function buildMystiflyBookRequest(
             PhoneNumber: contact.phone,
             Email: contact.email,
         },
-        Target: isDemo ? 'Test' : 'Production',
     };
 }
+
+
 
 // ─── Status Mapping ─────────────────────────────────────────────────
 
@@ -280,9 +281,9 @@ function formatDateForMystifly(date: string): string {
     return `${date}T00:00:00`;
 }
 
-function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+function jsonResponse(headers: Record<string, string>, body: Record<string, unknown>, status = 200): Response {
     return new Response(
         JSON.stringify(body),
-        { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status, headers: { ...headers, 'Content-Type': 'application/json' } },
     );
 }

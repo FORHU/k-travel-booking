@@ -2,15 +2,25 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { MapPropertyCard } from '@/components/map/MapPropertyCard';
 import { MapModal } from '@/components/map/MapModal';
 import { computeBounds } from '@/components/map/types';
 import type { MappableProperty } from '@/components/map/types';
-import type { Property } from '@/data/mockProperties';
+import { type Property } from '@/types';
 import { ArrowLeft, MapPin, ChevronDown, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatCurrency, cn } from '@/lib/utils';
-import { SearchMapContainer } from '../mapbox/SearchMapContainer';
+
+const SearchMapContainer = dynamic(
+    () => import('../mapbox/SearchMapContainer').then(m => ({ default: m.SearchMapContainer })),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="flex-1 h-full bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg" />
+        ),
+    }
+);
 
 // ── Sort logic ──────────────────────────────────────────
 const SORT_OPTIONS = ['recommended', 'price-low', 'price-high', 'rating'] as const;
@@ -78,14 +88,14 @@ function SearchMapView({ properties, destination }: SearchMapViewProps) {
     // ── Handlers ────────────────────────────────────────────
 
     const handleBackToList = useCallback(() => {
-        const params = new URLSearchParams(searchParams.toString());
+        const params = new URLSearchParams(searchParams?.toString() || '');
         params.delete('view');
         router.push(`/search?${params.toString()}`);
     }, [router, searchParams]);
 
     const handleViewDetails = useCallback(
         (id: string) => {
-            const params = new URLSearchParams(searchParams.toString());
+            const params = new URLSearchParams(searchParams?.toString() || '');
             params.delete('view');
             router.push(`/property/${id}?${params.toString()}`);
         },
@@ -222,6 +232,7 @@ function SearchMapView({ properties, destination }: SearchMapViewProps) {
                         hoveredId={hoveredId}
                         onHoverId={setHoveredId}
                         onViewDetails={handleViewDetails}
+                        searchOverlayClassName="absolute top-3 left-3 z-20 w-[72%]"
                     />
 
                     {/* Property count badge */}
@@ -232,9 +243,9 @@ function SearchMapView({ properties, destination }: SearchMapViewProps) {
                     {/* Floating List View Toggle */}
                     <button
                         onClick={handleBackToList}
-                        className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/95 hover:bg-slate-900 text-white px-5 py-2.5 rounded-full shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-0.5 flex items-center gap-2 text-sm font-semibold backdrop-blur-sm z-50 pointer-events-auto"
+                        className="absolute bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-full shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-0.5 flex items-center gap-2 text-[14px] font-bold z-50 pointer-events-auto"
                     >
-                        <List size={18} />
+                        <List size={16} strokeWidth={2.5} />
                         Show List
                     </button>
                 </div>
@@ -249,19 +260,8 @@ function SearchMapView({ properties, destination }: SearchMapViewProps) {
                     hoveredId={hoveredId}
                     onHoverId={setHoveredId}
                     onViewDetails={handleViewDetails}
+                    searchOverlayClassName="absolute top-3 left-3 z-20 w-[72%]"
                 />
-
-                {/* Floating "List" Toggle (Top Right) */}
-                <button
-                    onClick={handleBackToList}
-                    className={cn(
-                        "absolute top-4 right-14 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2 rounded-full shadow-lg active:scale-95 transition-all flex items-center gap-2 font-semibold z-50 pointer-events-auto",
-                        "text-xs landscape:top-2 landscape:right-12"
-                    )}
-                >
-                    <List size={16} />
-                    List
-                </button>
 
                 {/* Horizontal Swiper */}
                 <AnimatePresence>
@@ -288,18 +288,24 @@ function SearchMapView({ properties, destination }: SearchMapViewProps) {
                     )}
                 </AnimatePresence>
 
-                {/* Swiper Toggle Button (Bottom Center Pill) */}
-                <button
-                    onClick={() => setShowMobileMap(!showMobileMap)}
-                    className={cn(
-                        "absolute left-1/2 -translate-x-1/2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm px-4 py-1.5 rounded-full shadow-lg border border-slate-200 dark:border-slate-800 z-30 active:scale-95 transition-all text-slate-700 dark:text-slate-200 flex items-center gap-1.5",
-                        "bottom-4 landscape:bottom-2"
-                    )}
-                    aria-label={showMobileMap ? "Hide swiper" : "Show swiper"}
-                >
-                    <span className="text-[10px] font-bold uppercase tracking-wider">{showMobileMap ? 'Hide' : 'Show'}</span>
-                    <ChevronDown size={14} className={cn("transition-transform duration-300", !showMobileMap && "rotate-180")} />
-                </button>
+                {/* Bottom center pill group — List + Hide/Show */}
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 landscape:bottom-2">
+                    <button
+                        onClick={handleBackToList}
+                        className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm text-slate-800 dark:text-slate-200 px-4 py-1.5 rounded-full shadow-lg border border-slate-200 dark:border-slate-700 active:scale-95 transition-all flex items-center gap-1.5 font-semibold text-xs"
+                    >
+                        <List size={13} />
+                        List
+                    </button>
+                    <button
+                        onClick={() => setShowMobileMap(!showMobileMap)}
+                        className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm px-4 py-1.5 rounded-full shadow-lg border border-slate-200 dark:border-slate-800 active:scale-95 transition-all text-slate-700 dark:text-slate-200 flex items-center gap-1.5"
+                        aria-label={showMobileMap ? "Hide swiper" : "Show swiper"}
+                    >
+                        <span className="text-[10px] font-bold uppercase tracking-wider">{showMobileMap ? 'Hide' : 'Show'}</span>
+                        <ChevronDown size={14} className={cn("transition-transform duration-300", !showMobileMap && "rotate-180")} />
+                    </button>
+                </div>
             </div>
         </div>
     );

@@ -119,6 +119,8 @@ const STANDARD_STYLE = {
     layers: [] as never[],
 };
 
+import { env } from '@/utils/env';
+
 const Map = React.forwardRef<MapRef, MapProps>(
     (
         {
@@ -140,6 +142,11 @@ const Map = React.forwardRef<MapRef, MapProps>(
         const internalRef = React.useRef<MapRef>(null);
         const mapRef = (ref as React.RefObject<MapRef | null>) || internalRef;
         const styleReady = React.useRef(false);
+
+        const token = env.MAPBOX_TOKEN;
+        if (!token) {
+            console.error('Mapbox token is missing!');
+        }
 
         const handleLoad = React.useCallback(
             (e: mapboxgl.MapboxEvent) => {
@@ -222,7 +229,7 @@ const Map = React.forwardRef<MapRef, MapProps>(
             >
                 <MapboxMap
                     ref={mapRef}
-                    mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
+                    mapboxAccessToken={env.MAPBOX_TOKEN}
                     mapStyle={resolvedStyle as MapboxMapProps['mapStyle']}
                     onLoad={handleLoad}
                     {...props}

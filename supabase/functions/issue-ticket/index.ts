@@ -5,7 +5,7 @@
  *
  * Issues an airline e-ticket for a confirmed booking.
  *   1. Retrieves the booking from flight_bookings
- *   2. Calls Mystifly or Amadeus ticketing endpoint
+ *   2. Calls Mystifly or Duffel ticketing endpoint
  *   3. Updates booking status to "ticketed"
  *   4. Saves e-ticket numbers to passengers
  *
@@ -16,18 +16,15 @@
  *   { success: true, bookingId: string, pnr: string, ticketNumbers: string[] }
  */
 
+import { getCorsHeaders } from '../_shared/cors.ts';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 declare const Deno: any;
 
 import { ticketFlight, MystiflyError } from '../_shared/mystiflyClient.ts';
-import { amadeusRequest, AmadeusError } from '../_shared/amadeusClient.ts';
+import { getDuffelOrder } from '../_shared/duffelClient.ts';
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -35,9 +32,10 @@ interface FlightBooking {
     id: string;
     user_id: string;
     pnr: string;
-    provider: 'mystifly' | 'amadeus';
+    provider: 'mystifly' | 'duffel';
     total_price: number;
     status: string;
+    provider_order_id?: string;
 }
 
 interface TicketResult {
@@ -48,6 +46,8 @@ interface TicketResult {
 // ─── Handler ────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+    const corsHeaders = getCorsHeaders(req);
+
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
     }
@@ -59,7 +59,7 @@ Deno.serve(async (req: Request) => {
         const { bookingId } = JSON.parse(await req.text());
 
         if (!bookingId) {
-            return jsonResponse({ success: false, error: 'bookingId is required' }, 400);
+            return jsonResponse(corsHeaders, { success: false, error: 'bookingId is required' }, 400);
         }
 
         // ── Supabase Admin Client ──
@@ -75,20 +75,20 @@ Deno.serve(async (req: Request) => {
         // ── 1. Get Booking from Database ──
         const { data: booking, error: fetchError } = await supabase
             .from('flight_bookings')
-            .select('id, user_id, pnr, provider, total_price, status')
+            .select('id, user_id, pnr, provider, total_price, status, provider_order_id')
             .eq('id', bookingId)
             .single();
 
         if (fetchError || !booking) {
-            return jsonResponse({ success: false, error: 'Booking not found' }, 404);
+            return jsonResponse(corsHeaders, { success: false, error: 'Booking not found' }, 404);
         }
 
         const fb = booking as FlightBooking;
 
-        // Validate status — must be "booked" to issue ticket
+        // Validate status — must be "booked" or "awaiting_ticket" to issue ticket
         if (fb.status === 'ticketed') {
             const existingTickets = await getExistingTicketNumbers(supabase, bookingId);
-            return jsonResponse({
+            return jsonResponse(corsHeaders, {
                 success: true,
                 bookingId: fb.id,
                 pnr: fb.pnr,
@@ -97,8 +97,8 @@ Deno.serve(async (req: Request) => {
             });
         }
 
-        if (fb.status !== 'booked') {
-            return jsonResponse(
+        if (fb.status !== 'booked' && fb.status !== 'awaiting_ticket') {
+            return jsonResponse(corsHeaders,
                 { success: false, error: `Cannot issue ticket for booking with status: ${fb.status}` },
                 409,
             );
@@ -115,10 +115,11 @@ Deno.serve(async (req: Request) => {
 
         if (fb.provider === 'mystifly') {
             result = await ticketWithMystifly(fb.pnr);
-        } else if (fb.provider === 'amadeus') {
-            result = await ticketWithAmadeus(fb.pnr);
+        } else if (fb.provider === 'duffel') {
+            // Duffel orders are retrieved by their order ID, which we saved in provider_order_id column
+            result = await ticketWithDuffel(fb.provider_order_id ?? fb.pnr);
         } else {
-            return jsonResponse(
+            return jsonResponse(corsHeaders,
                 { success: false, error: `Unknown provider: ${fb.provider}` },
                 400,
             );
@@ -149,8 +150,7 @@ Deno.serve(async (req: Request) => {
                 .order('created_at', { ascending: true });
 
             if (passengers?.length) {
-                // Assign ticket numbers to passengers in order
-                const updates = passengers.map((pax, idx) => ({
+                const updates = passengers.map((pax: any, idx: number) => ({
                     id: pax.id,
                     ticket_number: result.ticketNumbers[idx] ?? result.ticketNumbers[0],
                 }));
@@ -167,7 +167,7 @@ Deno.serve(async (req: Request) => {
         const durationMs = Date.now() - startMs;
         console.log(`[issue-ticket] Completed: ${fb.pnr} → ${result.ticketNumbers.length} ticket(s) in ${durationMs}ms`);
 
-        return jsonResponse({
+        return jsonResponse(corsHeaders, {
             success: true,
             bookingId: fb.id,
             pnr: fb.pnr,
@@ -179,10 +179,9 @@ Deno.serve(async (req: Request) => {
 
         const status =
             err instanceof MystiflyError ? Math.max(err.status, 400) :
-            err instanceof AmadeusError ? Math.max(err.status, 400) :
-            500;
+                500;
 
-        return jsonResponse(
+        return jsonResponse(getCorsHeaders(req),
             { success: false, error: err.message || 'Ticketing failed' },
             status,
         );
@@ -200,19 +199,13 @@ async function ticketWithMystifly(pnr: string): Promise<TicketResult> {
 
     const data = raw.Data ?? {};
 
-    // Mystifly returns ticket numbers in TktNumbers or ETicketNumbers
     const ticketNumbers: string[] = extractTicketNumbers(data);
     const providerStatus = String(data.Status ?? 'ticketed');
 
     return { ticketNumbers, providerStatus };
 }
 
-/**
- * Extract e-ticket numbers from Mystifly's ticketing response.
- * The API may return them in various fields depending on version.
- */
 function extractTicketNumbers(data: Record<string, any>): string[] {
-    // Check common Mystifly ticket number fields
     const candidates = [
         data.TktNumbers,
         data.ETicketNumbers,
@@ -226,7 +219,6 @@ function extractTicketNumbers(data: Record<string, any>): string[] {
         }
     }
 
-    // Check nested TravelItinerary → TicketInfo
     const ticketInfos: any[] = data.TravelItinerary?.TicketInfo
         ?? data.TicketInfo
         ?? [];
@@ -237,56 +229,35 @@ function extractTicketNumbers(data: Record<string, any>): string[] {
             .filter(Boolean);
     }
 
-    // Single ticket number
     if (data.TicketNumber) return [String(data.TicketNumber)];
     if (data.ETicketNumber) return [String(data.ETicketNumber)];
 
     return [];
 }
 
-// ─── Amadeus Ticketing ──────────────────────────────────────────────
+// ─── Duffel Ticketing ───────────────────────────────────────────────
 
-/**
- * Amadeus Flight Orders are typically auto-ticketed on creation.
- * This retrieves the order to confirm ticketing status and extract
- * ticket numbers from the existing order.
- */
-async function ticketWithAmadeus(pnr: string): Promise<TicketResult> {
-    // Retrieve the Amadeus order using the PNR as the order identifier
-    const raw: any = await amadeusRequest(`/v1/booking/flight-orders/${pnr}`);
+async function ticketWithDuffel(orderId: string): Promise<TicketResult> {
+    const raw = await getDuffelOrder(orderId);
 
     const order = raw.data;
     if (!order) {
-        throw new Error('Amadeus order not found');
+        throw new Error('Duffel order not found');
     }
 
-    // Extract ticket numbers from travelers' documents
     const ticketNumbers: string[] = [];
 
-    const travelers = order.travelers ?? [];
-    for (const traveler of travelers) {
-        const docs = traveler.documents ?? [];
-        for (const doc of docs) {
-            if (doc.documentType === 'ETICKET' && doc.number) {
-                ticketNumbers.push(doc.number);
-            }
+    const documents = order.documents ?? [];
+    for (const doc of documents) {
+        if (doc.type === 'electronic_ticket' && doc.unique_identifier) {
+            // Document might be tied to multiple passengers or single, but usually 1:1 for tickets
+            ticketNumbers.push(doc.unique_identifier);
         }
     }
 
-    // Also check associatedRecords for ticket references
-    if (ticketNumbers.length === 0) {
-        const records = order.associatedRecords ?? [];
-        for (const rec of records) {
-            if (rec.reference && rec.originSystemCode === 'GDS') {
-                ticketNumbers.push(rec.reference);
-            }
-        }
-    }
-
-    // Also check ticketingAgreement
-    const ticketing = order.ticketingAgreement;
-    const isTicketed = ticketing?.option === 'CONFIRM'
-        || order.type === 'flight-order';
+    // If tickets aren't issued yet, Duffel status might still show payment/ticketing pending.
+    // However, instant orders are usually ticketed immediately.
+    const isTicketed = ticketNumbers.length > 0;
 
     return {
         ticketNumbers,
@@ -309,7 +280,7 @@ async function getExistingTicketNumbers(
     return (passengers ?? []).map((p: any) => p.ticket_number).filter(Boolean);
 }
 
-function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+function jsonResponse(corsHeaders: Record<string, string>, body: Record<string, unknown>, status = 200): Response {
     return new Response(
         JSON.stringify(body),
         { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

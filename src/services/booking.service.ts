@@ -40,6 +40,20 @@ export interface BookingParams {
     method: string;
     transactionId?: string;
   };
+  // Stripe payment intent (for server-side verification)
+  paymentIntentId?: string;
+  // Hotel metadata for DB record
+  propertyName?: string;
+  propertyImage?: string;
+  roomName?: string;
+  checkIn?: string;
+  checkOut?: string;
+  adults?: number;
+  children?: number;
+  currency?: string;
+  specialRequests?: string;
+  voucherCode?: string;
+  discountAmount?: number;
 }
 
 /**
@@ -244,10 +258,18 @@ export interface FlightBookingRecord {
   id: string;
   user_id: string;
   pnr: string;
-  provider: 'amadeus' | 'mystifly';
+  provider: 'duffel' | 'mystifly';
   total_price: number;
-  status: 'booked' | 'ticketed' | 'cancelled' | 'failed';
+  currency?: string;
+  trip_type?: 'one-way' | 'round-trip' | 'multi-city';
+  status: 'booked' | 'pnr_created' | 'awaiting_ticket' | 'ticketed' | 'failed' | 'cancel_requested' | 'cancelled' | 'cancel_failed' | 'refund_pending' | 'refund_failed' | 'refunded' | 'cancelled_provider_missing';
   created_at: string;
+
+  fare_policy?: any;
+  cancellation_log?: any[];
+  refund_amount?: number;
+  refund_penalty_amount?: number;
+  refund_currency?: string;
 
   // Joined relation fields
   flight_segments?: FlightSegmentRecord[];

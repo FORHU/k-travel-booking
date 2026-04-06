@@ -8,10 +8,6 @@ const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
         opacity: 1,
-        transition: {
-            staggerChildren: 0.12,
-            delayChildren: 0.2,
-        },
     },
 };
 
@@ -48,7 +44,7 @@ const HeroHeadline: React.FC = () => {
 
             <motion.div
                 variants={containerVariants}
-                initial="hidden"
+                initial={false}
                 animate="visible"
                 className="mb-4 sm:mb-6"
             >
