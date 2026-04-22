@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MapRef, MapMouseEvent } from 'react-map-gl/mapbox';
 import { NavigationControl, Popup } from 'react-map-gl/mapbox';
-import { Navigation } from 'lucide-react';
+import { Navigation, Layers } from 'lucide-react';
 import { Map } from '@/components/ui/map';
+import { useMapDetails } from '@/components/mapbox/hooks/useMapDetails';
+import { MapDetailsPanel } from '@/components/mapbox/components/MapDetailsPanel';
 import { MapMarker } from './MapMarker';
 import { MapPopup } from './MapPopup';
 import { MapPOIPopup } from './MapPOIPopup';
@@ -110,11 +112,37 @@ const PropertyMapView = React.memo(function PropertyMapView({
     onViewDetails,
 }: PropertyMapViewProps) {
     const mapRef = useRef<MapRef>(null);
+    const [isMapLoaded, setIsMapLoaded] = useState(false);
     const [poiPopup, setPoiPopup] = useState<POIState | null>(null);
     const [hoveredPOI, setHoveredPOI] = useState<POIState | null>(null);
-    // Track last hovered POI name to skip redundant state updates
     const hoveredPOINameRef = useRef<string | null>(null);
+    const lastMouseMoveRef = useRef<number>(0);
+    const lastFittedKeyRef = useRef<string | null>(null);
     const targetCurrency = useUserCurrency();
+
+    // Pre-compute display prices once per properties/currency change instead of
+    // calling convertCurrency() for every marker on every render.
+    const markerPrices = useMemo(() => {
+        const prices: Record<string, number> = {};
+        for (const p of properties) {
+            prices[p.id] = convertCurrency(p.price, p.currency || 'USD', targetCurrency);
+        }
+        return prices;
+    }, [properties, targetCurrency]);
+
+    const {
+        mapType,
+        setMapType,
+        showDetailsPanel,
+        setShowDetailsPanel,
+        showLabels,
+        setShowLabels,
+        mapDetails,
+        handleDetailToggle,
+        terrainEnabled,
+        mapStyleUrl,
+        standardConfig,
+    } = useMapDetails();
 
     const bounds = useMemo(() => computeBounds(properties), [properties]);
 
@@ -188,8 +216,12 @@ const PropertyMapView = React.memo(function PropertyMapView({
     );
 
     const handleMouseMove = useCallback((e: MapMouseEvent) => {
-        // Skip if a click popup is already showing — don't double-render
         if (poiPopup) return;
+
+        // Throttle to ~50ms (~20fps) — queryRenderedFeatures is a GPU read
+        const now = Date.now();
+        if (now - lastMouseMoveRef.current < 50) return;
+        lastMouseMoveRef.current = now;
 
         const map = mapRef.current?.getMap();
         if (!map) return;
@@ -197,13 +229,11 @@ const PropertyMapView = React.memo(function PropertyMapView({
         const poi = detectPOI(map, [e.point.x, e.point.y], e.lngLat);
         const name = poi?.name ?? null;
 
-        // Only update React state when the hovered POI actually changes
         if (name === hoveredPOINameRef.current) return;
         hoveredPOINameRef.current = name;
 
         setHoveredPOI(poi);
 
-        // Update map cursor
         const canvas = map.getCanvas();
         canvas.style.cursor = poi ? 'pointer' : '';
     }, [poiPopup]);
@@ -217,11 +247,13 @@ const PropertyMapView = React.memo(function PropertyMapView({
         }
     }, []);
 
-    const handleMapLoad = useCallback(() => {
-        if (properties.length === 0) return;
-
+    const fitBounds = useCallback(() => {
         const map = mapRef.current;
-        if (!map) return;
+        if (!map || properties.length === 0) return;
+
+        const key = properties.map(p => p.id).join(',');
+        if (lastFittedKeyRef.current === key) return;
+        lastFittedKeyRef.current = key;
 
         if (properties.length === 1) {
             map.flyTo({
@@ -233,28 +265,30 @@ const PropertyMapView = React.memo(function PropertyMapView({
         }
 
         map.fitBounds(
-            [
-                [bounds.minLng, bounds.minLat],
-                [bounds.maxLng, bounds.maxLat],
-            ],
-            {
-                padding: { top: 60, bottom: 60, left: 60, right: 60 },
-                maxZoom: 15,
-                duration: 0,
-            }
+            [[bounds.minLng, bounds.minLat], [bounds.maxLng, bounds.maxLat]],
+            { padding: { top: 60, bottom: 60, left: 60, right: 60 }, maxZoom: 15, duration: 0 }
         );
-    }, [properties.length, bounds]);
+    }, [properties, bounds]);
+
+    const handleMapLoad = useCallback(() => {
+        setIsMapLoaded(true);
+        fitBounds();
+    }, [fitBounds]);
+
+    // Re-fit when properties arrive after the map is already loaded
+    useEffect(() => {
+        if (!isMapLoaded) return;
+        fitBounds();
+    }, [isMapLoaded, fitBounds]);
 
     return (
         <div className="relative w-full h-full">
             <Map
                 ref={mapRef}
-                mapStyle="standard"
-                standardConfig={{
-                    lightPreset: 'day',
-                    show3dObjects: true,
-                    show3dBuildings: true,
-                }}
+                mapStyle={mapStyleUrl}
+                standardConfig={mapType === 'default-3d' ? { ...standardConfig, show3dFacades: false } : undefined}
+                enable3DTerrain={terrainEnabled}
+                terrainExaggeration={1.5}
                 initialViewState={{
                     longitude: bounds.centerLng || 120.596,
                     latitude: bounds.centerLat || 16.402,
@@ -275,7 +309,7 @@ const PropertyMapView = React.memo(function PropertyMapView({
                     <MapMarker
                         key={property.id}
                         property={property}
-                        displayPrice={convertCurrency(property.price, property.currency || 'USD', targetCurrency)}
+                        displayPrice={markerPrices[property.id] ?? 0}
                         displayCurrency={targetCurrency}
                         isSelected={selectedId === property.id}
                         isHovered={hoveredId === property.id}
@@ -335,9 +369,38 @@ const PropertyMapView = React.memo(function PropertyMapView({
             </Map>
 
             {/* Property count badge */}
-            <div className="absolute bottom-4 left-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm text-slate-900 dark:text-white px-3 py-1.5 rounded-full shadow-lg border border-slate-200 dark:border-slate-700 text-xs font-medium">
+            <div className="absolute bottom-4 left-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm text-slate-900 dark:white px-3 py-1.5 rounded-full shadow-lg border border-slate-200 dark:border-slate-700 text-xs font-medium">
                 {properties.length} {properties.length === 1 ? 'property' : 'properties'} on map
             </div>
+
+            {/* ── Layers button ── */}
+            {!showDetailsPanel && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setShowDetailsPanel(true);
+                    }}
+                    className="absolute top-4 left-4 z-20 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all active:scale-95 cursor-pointer flex items-center gap-2 group"
+                >
+                    <Layers className="w-5 h-5 text-slate-700 dark:text-slate-300 group-hover:text-blue-500 transition-colors" />
+                    <div className="w-px h-4 bg-slate-200 dark:bg-slate-700" />
+                    <svg className="w-3 h-3 text-slate-400 group-hover:text-slate-600 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+            )}
+
+            {/* ── Map Details Panel ── */}
+            <MapDetailsPanel
+                isOpen={showDetailsPanel}
+                onClose={() => setShowDetailsPanel(false)}
+                mapType={mapType}
+                onMapTypeChange={setMapType}
+                details={mapDetails}
+                onDetailToggle={handleDetailToggle}
+                showLabels={showLabels}
+                onLabelsToggle={() => setShowLabels((prev) => !prev)}
+            />
         </div>
     );
 });

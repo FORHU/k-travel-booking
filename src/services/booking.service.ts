@@ -66,6 +66,7 @@ export interface PrebookResponse {
     taxes?: number;
     total: number;
   };
+  currency?: string;
   status?: string;
   /** Cancellation policies from prebook response */
   cancellationPolicies?: CancellationPolicy;
@@ -125,7 +126,7 @@ export interface BookingRecord {
   holder_first_name: string;
   holder_last_name: string;
   holder_email: string;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'cancelled_refunded' | 'cancelled_refund_failed';
   special_requests?: string;
   created_at: string;
   updated_at: string;
@@ -236,6 +237,7 @@ export interface FlightSegmentRecord {
   destination: string;
   departure: string;
   arrival: string;
+  itinerary_index: number;
 }
 
 /**
@@ -258,7 +260,7 @@ export interface FlightBookingRecord {
   id: string;
   user_id: string;
   pnr: string;
-  provider: 'duffel' | 'mystifly';
+  provider: 'duffel' | 'mystifly_v2';
   total_price: number;
   currency?: string;
   trip_type?: 'one-way' | 'round-trip' | 'multi-city';

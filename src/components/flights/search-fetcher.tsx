@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { FlightResults } from '@/components/flights/flightResultsList';
 import FlightFilters, { type FilterState } from '@/components/flights/filters';
 import type { FlightOffer, CabinClass } from '@/types/flights';
@@ -87,43 +87,6 @@ function getProviderCounts(offers: FlightOffer[]): Record<string, number> {
     return counts;
 }
 
-function applyFilters(offers: FlightOffer[], filters: FilterState): FlightOffer[] {
-    let filtered = [...offers];
-
-    // Stops filter
-    if (filters.maxStops !== null) {
-        filtered = filtered.filter(o => o.totalStops <= filters.maxStops!);
-    }
-
-    // Airlines filter
-    if (filters.selectedAirlines.length > 0) {
-        filtered = filtered.filter(o => {
-            const airline = getAirlineName(o);
-            return filters.selectedAirlines.includes(airline);
-        });
-    }
-
-    // Sort
-    switch (filters.sortBy) {
-        case 'price':
-            filtered.sort((a, b) => a.price.total - b.price.total);
-            break;
-        case 'duration':
-            filtered.sort((a, b) => a.totalDuration - b.totalDuration);
-            break;
-        case 'departure': {
-            filtered.sort((a, b) => {
-                const aTime = a.segments[0]?.departure?.time || '';
-                const bTime = b.segments[0]?.departure?.time || '';
-                return aTime.localeCompare(bTime);
-            });
-            break;
-        }
-    }
-
-    return filtered;
-}
-
 // ─── Provider Status Badge ────────────────────────────────────────────────────
 
 function ProviderStatus({ offers, loading }: { offers: FlightOffer[]; loading: boolean }) {
@@ -181,14 +144,26 @@ export function SearchFetcher({
         sortBy: 'price',
         selectedAirlines: [],
         maxStops: null,
+        refundableOnly: false,
+        selectedProviders: [],
     });
+    // allOffers holds the unfiltered list (used to populate the filter panel)
+    const [allOffers, setAllOffers] = useState<FlightOffer[]>([]);
     const abortRef = useRef<AbortController | null>(null);
+    const searchBodyRef = useRef<object | null>(null);
+
+    const searchParams = useSearchParams();
+    const bundleHotelId = searchParams.get('bundleHotelId');
 
     const handleSelect = useCallback((offer: FlightOffer) => {
         sessionStorage.setItem('selectedFlight', JSON.stringify(offer));
         sessionStorage.setItem('flightSearchPassengers', JSON.stringify({ adults, children, infants }));
-        router.push('/flights/book');
-    }, [router, adults, children, infants]);
+        let url = '/flights/book';
+        if (bundleHotelId) {
+            url += `?bundleHotelId=${bundleHotelId}`;
+        }
+        router.push(url);
+    }, [router, adults, children, infants, bundleHotelId]);
 
     useEffect(() => {
         // Cancel any previous in-flight request
@@ -227,6 +202,7 @@ export function SearchFetcher({
                     cabinClass,
                     tripType: returnDate ? 'round-trip' : 'one-way',
                 };
+                searchBodyRef.current = body;
 
                 const res = await fetch('/api/flights/search', {
                     method: 'POST',
@@ -246,6 +222,7 @@ export function SearchFetcher({
                 }
 
                 const offers: FlightOffer[] = json.data?.offers ?? [];
+                setAllOffers(offers);
                 setState(offers.length > 0
                     ? { status: 'success', offers }
                     : { status: 'empty' }
@@ -269,8 +246,41 @@ export function SearchFetcher({
 
     // ─── Derived data ─────────────────────────────────────────────────────────
     const rawOffers = state.status === 'success' ? state.offers : [];
-    const airlines = useMemo(() => getAirlines(rawOffers), [rawOffers]);
-    const filteredOffers = useMemo(() => applyFilters(rawOffers, filters), [rawOffers, filters]);
+    // Airlines list always from the full unfiltered set so all options stay visible
+    const airlines = useMemo(() => getAirlines(allOffers.length > 0 ? allOffers : rawOffers), [allOffers, rawOffers]);
+
+    // Client-side filtering applied to cached allOffers — no re-fetch needed
+    const filteredOffers = useMemo(() => {
+        const base = allOffers.length > 0 ? allOffers : rawOffers;
+        let offers = [...base];
+        if (filters.maxStops !== null) {
+            offers = offers.filter(o => (o.totalStops ?? 0) <= filters.maxStops!);
+        }
+        if (filters.refundableOnly) {
+            offers = offers.filter(o => (o.farePolicy?.isRefundable ?? o.refundable) === true);
+        }
+        if (filters.selectedProviders.length > 0) {
+            offers = offers.filter(o => filters.selectedProviders.includes(o.provider as any));
+        }
+        if (filters.selectedAirlines.length > 0) {
+            offers = offers.filter(o => {
+                const name = getAirlineName(o);
+                return filters.selectedAirlines.includes(name);
+            });
+        }
+        if (filters.sortBy === 'price') {
+            offers.sort((a, b) => a.price.total - b.price.total);
+        } else if (filters.sortBy === 'duration') {
+            offers.sort((a, b) => (a.totalDuration ?? 0) - (b.totalDuration ?? 0));
+        } else if (filters.sortBy === 'departure') {
+            offers.sort((a, b) =>
+                new Date(a.segments[0]?.departure?.time ?? 0).getTime() -
+                new Date(b.segments[0]?.departure?.time ?? 0).getTime()
+            );
+        }
+        return offers;
+    }, [allOffers, rawOffers, filters]);
+
     const isLoading = state.status === 'loading' || state.status === 'loading_slow';
     const isSlowSearch = state.status === 'loading_slow';
     const hasResults = state.status === 'success';
@@ -388,7 +398,7 @@ export function SearchFetcher({
 
                 {/* Main results area */}
                 <div className="flex-1 min-w-0">
-                    {hasResults && filteredOffers.length === 0 && rawOffers.length > 0 ? (
+                    {hasResults && filteredOffers.length === 0 && allOffers.length > 0 ? (
                         <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-10 text-center space-y-3">
                             <p className="text-lg font-bold text-slate-700 dark:text-slate-300">No flights match your filters</p>
                             <p className="text-sm text-slate-500">Try adjusting your filter criteria.</p>

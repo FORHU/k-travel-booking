@@ -204,12 +204,18 @@ export const useSearchModule = (): UseSearchModuleReturn => {
 
         // Destination
         params.set('destination', destValue!);
-        // Include placeId and countryCode for accurate API results
         if (state.destination?.countryCode) {
             params.set('countryCode', state.destination.countryCode);
         }
+        if (state.destination?.type === 'country') {
+            params.set('destinationType', 'country');
+        }
         if (state.destination?.id) {
             params.set('placeId', state.destination.id);
+        }
+        // TravelgateX destination code (from autocomplete)
+        if (state.destination?.code) {
+            params.set('destinationCode', state.destination.code);
         }
 
         // Currency: based on user's locale (from store), not the destination
@@ -217,8 +223,15 @@ export const useSearchModule = (): UseSearchModuleReturn => {
         params.set('currency', state.userCurrency || 'KRW');
 
         // Dates
-        params.set('checkIn', state.dates.checkIn!.toISOString());
-        params.set('checkOut', state.dates.checkOut!.toISOString());
+        // Dates - Use YYYY-MM-DD local string to avoid UTC shift
+        params.set('checkIn', (() => {
+            const d = state.dates.checkIn!;
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })());
+        params.set('checkOut', (() => {
+            const d = state.dates.checkOut!;
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })());
 
         // Travelers
         params.set('adults', state.travelers.adults.toString());

@@ -21,8 +21,9 @@ import {
     useCheckoutPrebook,
     usePricingCalculation,
 } from '@/hooks';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api/client';
-import { LogIn } from 'lucide-react';
+import { AlertTriangle, LogIn } from 'lucide-react';
 import { toast } from 'sonner';
 import BackButton from '@/components/common/BackButton';
 import AuthModal from '@/components/auth/AuthModal';
@@ -61,6 +62,8 @@ const BOOKING_STEPS = [
 ] as const;
 
 export function CheckoutContent() {
+    const router = useRouter();
+
     // Booking store selectors
     const property = useProperty();
     const selectedRoom = useSelectedRoom();
@@ -117,6 +120,13 @@ export function CheckoutContent() {
     const [clientSecret, setClientSecret] = useState<string | null>(null);
     const [isCreatingPayment, setIsCreatingPayment] = useState(false);
 
+    // Duplicate booking warning dialog state
+    const [duplicateBooking, setDuplicateBooking] = useState<{
+        existingBookingId: string;
+        existingCheckIn?: string;
+        existingCheckOut?: string;
+    } | null>(null);
+
     // Booking confirmation progress overlay
     const [bookingStepIdx, setBookingStepIdx] = useState(0);
     const bookingStepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -142,14 +152,34 @@ export function CheckoutContent() {
     const globalCurrency = useUserCurrency();
     const { syncWithUserCurrency } = useCheckoutActions();
 
+    const searchParams = useSearchParams();
+    // Present when user arrived from the post-flight-booking bundle upsell → triggers 12% bundle rate
+    const bundleFlightIdFromUrl = searchParams.get('bundleFlightId') || undefined;
+    
+    // Save locally so it survives re-renders after we wipe sessionStorage on success
+    const [bundleFlightId, setBundleFlightId] = useState<string | undefined>(undefined);
+
+    // Persist to sessionStorage so it survives Stripe redirect (URL params are lost after payment)
     useEffect(() => {
-        // Don't override when URL already specifies a currency — that would
-        // cause a second prebook call right after the URL-currency prebook starts.
-        const urlCurrency = new URLSearchParams(window.location.search).get('currency');
-        if (!urlCurrency) {
+        const stored = typeof window !== 'undefined' ? sessionStorage.getItem('bundleFlightId') : undefined;
+        if (bundleFlightIdFromUrl) {
+            sessionStorage.setItem('bundleFlightId', bundleFlightIdFromUrl);
+            setBundleFlightId(bundleFlightIdFromUrl);
+        } else if (stored) {
+            setBundleFlightId(stored);
+        }
+    }, [bundleFlightIdFromUrl]);
+
+    useEffect(() => {
+        // Sync currency from URL whenever it changes
+        const urlCurrency = searchParams.get('currency');
+        if (urlCurrency && urlCurrency !== selectedCurrency) {
+            syncWithUserCurrency(urlCurrency);
+        } else if (!urlCurrency) {
+            // Only sync from global if no URL override is present
             syncWithUserCurrency(globalCurrency);
         }
-    }, [globalCurrency, syncWithUserCurrency]);
+    }, [globalCurrency, syncWithUserCurrency, searchParams, selectedCurrency]);
 
     // Reset success state from previous booking on mount
     useEffect(() => {
@@ -172,7 +202,7 @@ export function CheckoutContent() {
     });
 
     // Pricing calculation hook
-    const { displayProperty, displayRoom, totalNights, taxes, totalPrice } = usePricingCalculation({
+    const { displayProperty, displayRoom, totalNights, roomPrice, taxes, totalPrice } = usePricingCalculation({
         priceData,
     });
 
@@ -218,12 +248,14 @@ export function CheckoutContent() {
             return;
         }
 
-        // Use server-calculated final price if voucher applied
+        // Always charge in selectedCurrency using the converted totalPrice.
+        // priceData.total is LiteAPI's raw amount (may be in IDR, USD, etc.) —
+        // using it directly with selectedCurrency would mismatch currency + amount.
         const chargeAmount = appliedVoucher
             ? appliedVoucher.finalPrice
-            : (priceData?.total || totalPrice || 0);
+            : totalPrice;
 
-        if (chargeAmount <= 0) {
+        if (!chargeAmount || chargeAmount <= 0) {
             toast.error("Invalid booking price. Please retry.");
             return;
         }
@@ -239,10 +271,22 @@ export function CheckoutContent() {
                     holderEmail: formData.email,
                     propertyName: property?.name || 'Hotel',
                     roomName: selectedRoom?.title || 'Room',
+                    checkIn: checkIn?.toISOString().slice(0, 10),
+                    checkOut: checkOut?.toISOString().slice(0, 10),
+                    ...(bundleFlightId ? { bundleFlightId } : {}),
                 }
             );
 
             if (!result.success) {
+                const raw = result as unknown as Record<string, unknown>;
+                if (raw.code === 'DUPLICATE_BOOKING' && typeof raw.existingBookingId === 'string') {
+                    setDuplicateBooking({
+                        existingBookingId: raw.existingBookingId,
+                        existingCheckIn: typeof raw.existingCheckIn === 'string' ? raw.existingCheckIn : undefined,
+                        existingCheckOut: typeof raw.existingCheckOut === 'string' ? raw.existingCheckOut : undefined,
+                    });
+                    return;
+                }
                 throw new Error('error' in result ? result.error : 'Failed to create payment session');
             }
 
@@ -258,7 +302,7 @@ export function CheckoutContent() {
         } finally {
             setIsCreatingPayment(false);
         }
-    }, [user, prebookId, selectedRoom, formData, bookingFor, priceData, selectedCurrency, property, openAuthModal, totalPrice, clearFormErrors, setFormErrors, appliedVoucher]);
+    }, [user, prebookId, selectedRoom, formData, bookingFor, priceData, selectedCurrency, property, openAuthModal, totalPrice, clearFormErrors, setFormErrors, appliedVoucher, bundleFlightId]);
 
     // Step 2: After Stripe payment succeeds → confirm with LiteAPI
     const handlePaymentSuccess = useCallback(async (stripePaymentIntentId: string) => {
@@ -296,7 +340,7 @@ export function CheckoutContent() {
 
             const finalBookingPrice = appliedVoucher
                 ? appliedVoucher.finalPrice
-                : (priceData?.total || totalPrice || 0);
+                : totalPrice;
 
             // Fire-and-forget post-booking tasks
             const postBookingTasks: Promise<unknown>[] = [
@@ -377,7 +421,16 @@ export function CheckoutContent() {
     const displayTotalPrice = appliedVoucher ? appliedVoucher.finalPrice : totalPrice;
 
     // Success screen
+    useEffect(() => {
+        if (isSuccess && typeof window !== 'undefined') {
+            sessionStorage.removeItem('bundleFlightId');
+            sessionStorage.setItem('hasAlreadyBookedHotel', 'true');
+        }
+    }, [isSuccess]);
+
     if (isSuccess) {
+        // savings = 3% of base price; base = bundlePrice / 1.12, so savings = totalPrice * 3/112
+        const bundleSavings = bundleFlightId && totalPrice ? Math.round(totalPrice * 3 / 112 * 100) / 100 : undefined;
         return (
             <BookingSuccess
                 propertyName={property?.name || "Grand Sierra Pines"}
@@ -386,6 +439,10 @@ export function CheckoutContent() {
                 checkOut={checkOut}
                 email={formData.email}
                 emailSent={emailSent}
+                bundleFlightId={bundleFlightId}
+                bundleSavings={bundleSavings}
+                currency={selectedCurrency}
+                hotelDestination={property?.city}
             />
         );
     }
@@ -421,7 +478,7 @@ export function CheckoutContent() {
                     {!user && (
                         <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-4 rounded-lg">
                             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                                <LogIn className="text-amber-600 dark:text-amber-400 flex-shrink-0" size={24} />
+                                <LogIn className="text-amber-600 dark:text-amber-400 shrink-0" size={24} />
                                 <div className="flex-1">
                                     <h3 className="font-semibold text-amber-800 dark:text-amber-200">Sign in to complete your booking</h3>
                                     <p className="text-sm text-amber-600 dark:text-amber-400">
@@ -468,6 +525,36 @@ export function CheckoutContent() {
                         <div className="lg:col-span-2 space-y-2.5 lg:space-y-6">
                             {step === 'form' ? (
                                 <>
+                                    {/* Duplicate booking inline banner */}
+                                    {duplicateBooking && (
+                                        <div className="rounded-xl border-2 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 p-3 lg:p-4 space-y-2.5">
+                                            <div className="flex items-center gap-2">
+                                                <AlertTriangle className="text-red-500 dark:text-red-400 shrink-0" size={18} />
+                                                <p className="text-sm font-bold text-red-700 dark:text-red-300">
+                                                    You already have a booking at {property?.name}
+                                                    {duplicateBooking.existingCheckIn && duplicateBooking.existingCheckOut && (
+                                                        <> ({new Date(duplicateBooking.existingCheckIn).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(duplicateBooking.existingCheckOut).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})</>
+                                                    )} for overlapping dates.
+                                                </p>
+                                            </div>
+                                            <p className="text-xs text-red-600 dark:text-red-400">Cancel your existing booking first, or go back and keep it.</p>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => router.push(`/trips?highlight=${duplicateBooking.existingBookingId}`)}
+                                                    className="flex-1 py-2 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                                                >
+                                                    View existing booking
+                                                </button>
+                                                <button
+                                                    onClick={() => router.push('/')}
+                                                    className="flex-1 py-2 text-xs font-medium border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                                >
+                                                    Keep existing booking
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <UserDetailsForm
                                         formData={formData}
                                         onInputChange={handleInputChange}
@@ -552,7 +639,7 @@ export function CheckoutContent() {
                                 reviewScore={property?.rating}
                                 reviewCount={property?.reviews}
                                 roomTitle={displayRoom.title}
-                                roomPrice={displayRoom.price}
+                                roomPrice={roomPrice}
                                 totalNights={totalNights}
                                 adults={adults}
                                 children={children}
@@ -563,6 +650,7 @@ export function CheckoutContent() {
                                 prebookId={prebookId}
                                 cancellationPolicies={priceData?.cancellationPolicies}
                                 appliedVoucher={appliedVoucher}
+                                isLoading={prebooking}
                             />
 
                             {/* Mobile-only Submit Button — only on form step */}

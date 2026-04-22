@@ -1,6 +1,17 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+const STREET_WORDS = /\b(street|avenue|road|boulevard|drive|lane|purok|extension|ave|blvd|barangay|bgy|brgy)\b/i;
+
+/** Extract the city portion from a raw hotel address string. */
+export function extractCityFromAddress(location: string): string {
+    if (!location) return '';
+    const parts = location.split(',').map(p => p.trim()).filter(p => p.length > 2 && !/^\d+$/.test(p) && !p.includes('#'));
+    if (parts.length === 0) return location;
+    if (parts.length === 1) return parts[0];
+    return STREET_WORDS.test(parts[0]) ? (parts[1] || parts[0]) : parts[0];
+}
+
 /**
  * Utility function to merge class names
  * Combines clsx for conditional classes and tailwind-merge for conflict resolution
@@ -14,10 +25,29 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function formatCurrency(
     amount: number,
-    currency = 'KRW',
-    locale = 'ko-KR'
+    currencyCode = 'KRW',
+    locale?: string
 ): string {
-    return new Intl.NumberFormat(locale, {
+    const currency = currencyCode.toUpperCase();
+    
+    const localeMap: Record<string, string> = {
+        'KRW': 'ko-KR',
+        'USD': 'en-US',
+        'PHP': 'en-PH',
+        'EUR': 'de-DE',
+        'JPY': 'ja-JP',
+        'GBP': 'en-GB',
+        'SGD': 'en-SG',
+        'AUD': 'en-AU',
+        'CAD': 'en-CA',
+        'CNY': 'zh-CN',
+        'THB': 'th-TH',
+        'MYR': 'ms-MY',
+    };
+
+    const targetLocale = locale || localeMap[currency] || 'en-US';
+
+    return new Intl.NumberFormat(targetLocale, {
         style: 'currency',
         currency,
         minimumFractionDigits: 0,
